@@ -47,7 +47,7 @@ st.markdown(
 
 st.markdown('<div class="main-title">⚖️ LexSentencia 2026</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano<br><b>Análisis Párrafo por Párrafo (Estilo Turnitin) con Conexión Directa a Google Gemini</b></div>',
+    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano<br><b>Análisis Párrafo por Párrafo (Estilo Turnitin) con Google Gemini API</b></div>',
     unsafe_allow_html=True,
 )
 
@@ -172,7 +172,7 @@ if uploaded_file:
     st.success(f"📄 Sentencia cargada: **{uploaded_file.name}** ({len(raw_text):,} caracteres)")
 
     if st.button("🚀 Audit Sentencia (Modo Turnitin + Rúbrica Personalizada)", type="primary"):
-        with st.spinner("🔍 Enviando documento directamente a Google Gemini para análisis en tiempo real..."):
+        with st.spinner("🔍 Conectando con Google Gemini para auditar la sentencia en tiempo real..."):
             
             criterios_res = []
             hallazgos_res = []
@@ -211,14 +211,13 @@ if uploaded_file:
                 + raw_text[:14000]
             )
 
-            # --- CONEXIÓN DIRECTA POR HTTP REST A GOOGLE GEMINI ---
+            # --- CONEXIÓN DIRECTA REST A GOOGLE GEMINI ---
             if provider == "Google Gemini (IA Real)":
                 clean_key = api_key.strip()
                 if not clean_key:
                     st.error("❌ No ingresaste la API Key de Gemini en la barra lateral.")
                 else:
-                    # Modelos oficiales estándar de Google Gemini
-                    models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
+                    models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"]
                     last_http_error = ""
 
                     for m_name in models_to_try:
@@ -227,13 +226,12 @@ if uploaded_file:
                         payload = {
                             "contents": [{"parts": [{"text": prompt_text}]}],
                             "generationConfig": {
-                                "response_mime_type": "application/json",
                                 "temperature": 0.2
                             }
                         }
 
                         try:
-                            response = requests.post(url, json=payload, timeout=45)
+                            response = requests.post(url, json=payload, timeout=50)
                             if response.status_code == 200:
                                 res_json = response.json()
                                 try:
@@ -257,14 +255,14 @@ if uploaded_file:
                                         model_used_name = m_name
                                         break
                                 except Exception as parse_e:
-                                    last_http_error = f"Error al parsear JSON: {parse_e}"
+                                    last_http_error = f"Error al leer respuesta JSON: {parse_e}"
                             else:
-                                last_http_error = f"Código {response.status_code}: {response.text}"
+                                last_http_error = f"Código HTTP {response.status_code}: {response.text}"
                         except Exception as req_e:
-                            last_http_error = f"Excepción HTTP: {req_e}"
+                            last_http_error = f"Excepción de conexión: {req_e}"
 
                     if not ejecutado_con_ia:
-                        st.error(f"❌ Fallo de conexión directa con la API de Google: {last_http_error}")
+                        st.error(f"❌ Error al comunicar con Google API: {last_http_error}")
 
             # --- MODO DEMOSTRACIÓN LOCAL ---
             if not ejecutado_con_ia:
