@@ -214,32 +214,30 @@ if uploaded_file:
                 + raw_text[:180000]
             )
 
-            # --- CONEXIÓN DINÁMICA SANITIZADA A GOOGLE GEMINI ---
+            # --- CONEXIÓN DIRECTA REST A GOOGLE GEMINI CON HIGIENE DE CARACTERES ---
             if provider == "Google Gemini (IA Real)":
-                # Elimina cualquier espacio invisible (\xa0, \t, \r, \n) que altere la URL
-                clean_key = re.sub(r'[\s\xa0\ufeff]', '', api_key)
+                # Elimina estrictamente cualquier espacio de no separación (\xa0) o caracteres invisibles copia-pega
+                clean_key = re.sub(r'[^a-zA-Z0-9_\-]', '', api_key)
                 
                 if not clean_key:
                     st.error("❌ No ingresaste la API Key de Gemini en la barra lateral.")
                 else:
-                    headers = {
-                        "Content-Type": "application/json",
-                        "x-goog-api-key": clean_key
-                    }
-                    
                     candidate_models = [
-                        ("v1beta", "gemini-1.5-flash"),
-                        ("v1beta", "gemini-1.5-pro"),
-                        ("v1beta", "gemini-2.0-flash")
+                        "gemini-1.5-flash",
+                        "gemini-1.5-pro",
+                        "gemini-2.0-flash"
                     ]
 
                     res_text = None
                     last_http_error = ""
 
-                    for api_ver, m_name in candidate_models:
-                        # Construcción y desinfección estricta de la URL objetivo
-                        raw_url = f"[https://generativelanguage.googleapis.com/](https://generativelanguage.googleapis.com/){api_ver}/models/{m_name}:generateContent"
-                        clean_url = re.sub(r'[\s\xa0\ufeff]', '', raw_url)
+                    for m_name in candidate_models:
+                        target_url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){m_name}:generateContent"
+                        
+                        headers = {
+                            "Content-Type": "application/json",
+                            "x-goog-api-key": clean_key
+                        }
 
                         payload_json = {
                             "contents": [{"parts": [{"text": prompt_text}]}],
@@ -250,7 +248,7 @@ if uploaded_file:
 
                         try:
                             response = requests.post(
-                                clean_url,
+                                target_url,
                                 headers=headers,
                                 json=payload_json,
                                 timeout=60
@@ -263,10 +261,10 @@ if uploaded_file:
                                     parts = candidates[0]["content"].get("parts", [])
                                     if parts and "text" in parts[0]:
                                         res_text = parts[0]["text"]
-                                        model_used_name = f"{m_name} ({api_ver})"
+                                        model_used_name = m_name
                                         break
                             else:
-                                last_http_error = f"{m_name} [{api_ver}] -> Estado HTTP {response.status_code}: {response.text[:200]}"
+                                last_http_error = f"{m_name} -> Estado HTTP {response.status_code}: {response.text[:200]}"
                         except Exception as req_e:
                             last_http_error = f"Excepción en {m_name}: {req_e}"
 
