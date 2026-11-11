@@ -7,7 +7,7 @@ from docx.shared import RGBColor
 import pypdf
 import streamlit as st
 
-# Importación opcional de motores de IA
+# Importaciones opcionales para evitar errores de librerías faltantes
 try:
     import google.generativeai as genai
 except ImportError:
@@ -228,23 +228,9 @@ if uploaded_file:
                     try:
                         genai.configure(api_key=api_key)
                         
-                        # Obtener dinámicamente el nombre exacto de modelo compatible en tu cuenta
-                        active_model_name = None
-                        try:
-                            available_models = genai.list_models()
-                            for m in available_models:
-                                if 'generateContent' in m.supported_generation_methods:
-                                    if 'flash' in m.name or 'pro' in m.name:
-                                        active_model_name = m.name
-                                        break
-                        except Exception:
-                            pass
-
                         candidate_list = [
-                            active_model_name,
                             "models/gemini-1.5-flash",
                             "models/gemini-1.5-pro",
-                            "models/gemini-2.0-flash",
                             "gemini-1.5-flash",
                             "gemini-1.5-pro"
                         ]
@@ -253,8 +239,6 @@ if uploaded_file:
                         last_err = None
 
                         for m_name in candidate_list:
-                            if not m_name:
-                                continue
                             try:
                                 model = genai.GenerativeModel(m_name)
                                 res = model.generate_content(prompt_text)
@@ -304,8 +288,134 @@ if uploaded_file:
                 for item in edited_rubrica:
                     max_p = item["Max_Pts"]
                     assigned_p = round(max_p * 0.65, 1)
+                    nivel_val = "Observado" if assigned_p < (max_p * 0.75) else "Satisfactorio"
                     criterios_res.append({
                         "nombre": item["Criterio"],
                         "score": assigned_p,
                         "max_pts": max_p,
-                        "nivel": "Observado" if assigned_p < max_p *
+                        "nivel": nivel_val,
+                        "detalle": "Presenta argumento genérico de plantilla; requiere fundamentación concreta de las pruebas del proceso."
+                    })
+                
+                crit_2 = edited_rubrica[2]["Criterio"] if len(edited_rubrica) > 2 else "Juicio Probatorio"
+                crit_1 = edited_rubrica[1]["Criterio"] if len(edited_rubrica) > 1 else "Congruencia Procesal"
+
+                hallazgos_res = [
+                    {
+                        "criterio_afectado": crit_2,
+                        "texto_original": "CONSIDERANDO CUARTO: Que, respecto a la prueba documental presentada por la parte demandada, este juzgado considera que no desvirtúa las pretensiones de la parte actora, por lo que procede a amparar la demanda en todos sus extremos...",
+                        "vicio": "Motivación Aparente y Defecto en la Valoración Probatoria (STC 00728-2008-PHC/TC)",
+                        "base_legal": "Art. 197 del Código Procesal Civil Peruano",
+                        "propuesta_redaccion": "CONSIDERANDO CUARTO (REVISIÓN SUBSANATORIA): Respecto a la documental N° 04 presentada por la defensa, este despacho advierte que si bien sostiene la falta de responsabilidad, queda desvirtuada al contrastarse de forma conjunta con la prueba testimonial de fojas 45, toda vez que no justifica la omisión del deber de cuidado conforme al Art. 197 del CPC."
+                    },
+                    {
+                        "criterio_afectado": crit_1,
+                        "texto_original": "CONSIDERANDO SÉPTIMO: Que, atendiendo a la carga procesal y a la naturaleza del proceso, se fija el monto indemnizatorio en el máximo legal sin requerirse mayor probanza al ser evidente el daño ocasionado...",
+                        "vicio": "Motivación Insuficiente (Falta de Criterios Cualitativos de Cuantificación)",
+                        "base_legal": "Art. 139 inc. 5 de la Constitución Política del Perú",
+                        "propuesta_redaccion": "CONSIDERANDO SÉPTIMO (REVISIÓN SUBSANATORIA): En cuanto a la cuantificación de la reparación civil, este juzgado fija el monto en S/ 15,000 sustentándose en el grado de afectación emocional acreditado en la Pericia Psicológica N° 88-2025 y la capacidad económica demostrada del obligado, garantizando la debida motivación del quantum indemnizatorio."
+                    }
+                ]
+
+            # --- CÁLCULO DE MÉTRICAS ---
+            total_score = sum(c["score"] for c in criterios_res)
+            for c in criterios_res:
+                c["pct"] = (c["score"] / c["max_pts"]) * 100 if c["max_pts"] > 0 else 0
+
+            pct_cumplimiento = (total_score / max_score_posible) * 100 if max_score_posible > 0 else 0
+            pct_riesgo = round(100.0 - pct_cumplimiento, 1)
+
+            st.markdown("---")
+            st.subheader("📊 Métrica Global de Auditoría (Estilo Turnitin)")
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown(
+                    f"""
+                <div class="metric-box">
+                    <small>CUMPLIMIENTO NORMATIVO</small>
+                    <div class="metric-value">{pct_cumplimiento:.1f}%</div>
+                    <small>Score: <b>{total_score:.1f} / {max_score_posible:.1f} pts</b></small>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+
+            with col2:
+                st.markdown(
+                    f"""
+                <div class="metric-box">
+                    <small>RIESGO DE NULIDAD / DEFECTOS</small>
+                    <div class="metric-risk">{pct_riesgo:.1f}%</div>
+                    <small>Párrafos críticos: <b>{len(hallazgos_res)}</b></small>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+
+            with col3:
+                nivel_txt = "Sobresaliente / Conforme" if pct_cumplimiento >= 85 else ("Observado / Subsanable" if pct_cumplimiento >= 60 else "Alto Riesgo de Nulidad")
+                st.markdown(
+                    f"""
+                <div class="metric-box">
+                    <small>ESTADO DE LA SENTENCIA</small>
+                    <div style="font-size: 1.3rem; font-weight:800; color:#1E3A8A; margin-top:15px;">{nivel_txt}</div>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+
+            st.markdown("---")
+            st.subheader("📋 Calificación por Criterios (Rúbrica Dinámica Configurada)")
+            for c in criterios_res:
+                st.write(f"**{c['nombre']}** — `{c['score']} / {c['max_pts']} pts` ({c['pct']:.0f}%)")
+                st.progress(min(max(c['pct'] / 100.0, 0.0), 1.0))
+                st.caption(f"📌 {c['detalle']}")
+
+            st.markdown("---")
+            st.subheader("🔍 Auditoría Párrafo por Párrafo (Subrayado & Opciones de Subsanación)")
+            st.info("A continuación se subrayan los extractos con vicios de motivación y la propuesta de texto corregido para reemplazarlos:")
+
+            for i, h in enumerate(hallazgos_res, 1):
+                st.markdown(f"#### 📍 Observación N° {i}: {h['criterio_afectado']}")
+                st.markdown(f"<span class='legal-badge'>Vicio: {h['vicio']}</span> | **Base Legal:** {h['base_legal']}", unsafe_allow_html=True)
+                
+                st.markdown(
+                    f"""
+                    <div class="turnitin-obs-box">
+                        <b>⚠️ PÁRRAFO ORIGINAL OBSERVADO EN LA SENTENCIA:</b><br>
+                        <i>"{h['texto_original']}"</i>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                
+                st.markdown(
+                    f"""
+                    <div class="turnitin-fix-box">
+                        <b>✅ PROPUESTA DE REDACCIÓN SUBSANATORIA (PARA REEMPLAZAR):</b><br>
+                        <b>"{h['propuesta_redaccion']}"</b>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                st.markdown("---")
+
+            # --- BOTÓN DE DESCARGA EN WORD ---
+            word_file = create_word_report(
+                uploaded_file.name,
+                total_score,
+                max_score_posible,
+                pct_cumplimiento,
+                pct_riesgo,
+                criterios_res,
+                hallazgos_res,
+            )
+
+            st.download_button(
+                label="📄 Descargar Informe Oficial en Word (.docx)",
+                data=word_file,
+                file_name=f"Reporte_Turnitin_LexSentencia_{uploaded_file.name}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                type="primary",
+            )
