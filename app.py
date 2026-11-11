@@ -7,7 +7,7 @@ from docx.shared import RGBColor
 import pypdf
 import streamlit as st
 
-# Importación de motores de IA
+# Importación opcional de motores de IA
 try:
     import google.generativeai as genai
 except ImportError:
@@ -24,7 +24,7 @@ st.set_page_config(
     layout="wide",
 )
 
-# Estilos CSS Estilo Turnitin
+# Estilos CSS de la interfaz (Estilo Turnitin)
 st.markdown(
     """
 <style>
@@ -63,7 +63,7 @@ st.markdown(
 
 # --- CONFIGURACIÓN DE BARRA LATERAL ---
 st.sidebar.header("⚙️ Motor de IA & API")
-provider = st.sidebar.selectbox("Proveedor de IA", ["Modo Demostración Local", "Google Gemini", "OpenAI (GPT-4o / GPT-4)"])
+provider = st.sidebar.selectbox("Proveedor de IA", ["Google Gemini", "OpenAI (GPT-4o / GPT-4)", "Modo Demostración Local"])
 
 if provider == "Google Gemini":
     api_key = st.sidebar.text_input("API Key de Google Gemini (Gratis en AI Studio)", type="password")
@@ -193,6 +193,32 @@ if uploaded_file:
             hallazgos_res = []
             ejecutado_con_ia = False
 
+            rubrica_str = "\n".join([f"- {item['Criterio']}: max {item['Max_Pts']} pts" for item in edited_rubrica])
+
+            # Construcción segura del prompt
+            prompt_text = (
+                "Actúa como Auditor Jurídico de Sentencias Peruanas.\n"
+                "Evalúa la sentencia según esta rúbrica:\n"
+                + rubrica_str + "\n\n"
+                "Formato JSON estricto requerido:\n"
+                "{\n"
+                '  "criterios_evaluados": [\n'
+                '    {"nombre": "nombre", "score": 3.0, "max_pts": 4.0, "nivel": "Aceptable", "detalle": "motivo"}\n'
+                "  ],\n"
+                '  "hallazgos_parrafos": [\n'
+                "    {\n"
+                '      "criterio_afectado": "nombre",\n'
+                '      "texto_original": "párrafo exacto de la sentencia",\n'
+                '      "vicio": "tipo de vicio",\n'
+                '      "base_legal": "Art. X",\n'
+                '      "propuesta_redaccion": "texto mejorado completo"\n'
+                "    }\n"
+                "  ]\n"
+                "}\n\n"
+                "SENTENCIA A AUDITAR:\n"
+                + raw_text[:12000]
+            )
+
             # --- PROCESAMIENTO CON GOOGLE GEMINI ---
             if provider == "Google Gemini":
                 if not api_key.strip():
@@ -202,20 +228,52 @@ if uploaded_file:
                 else:
                     try:
                         genai.configure(api_key=api_key)
-                        rubrica_str = "\n".join([f"- {item['Criterio']}: max {item['Max_Pts']} pts" for item in edited_rubrica])
+                        candidate_models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
+                        res_text = None
+                        last_err = None
                         
-                        prompt = f"""
-                        Actúa como Auditor Jurídico de Sentencias Peruanas.
-                        Evalúa la sentencia según esta rúbrica:
-                        {rubrica_str}
+                        for m_name in candidate_models:
+                            try:
+                                model = genai.GenerativeModel(m_name)
+                                res = model.generate_content(prompt_text)
+                                if res and res.text:
+                                    res_text = res.text
+                                    break
+                            except Exception as ex:
+                                last_err = ex
+                                continue
 
-                        Formato JSON requerido:
-                        {{
-                            "criterios_evaluados": [
-                                {{"nombre": "nombre", "score": 3.0, "max_pts": 4.0, "nivel": "Aceptable", "detalle": "motivo"}}
-                            ],
-                            "hallazgos_parrafos": [
-                                {{
-                                    "criterio_afectado": "nombre",
-                                    "texto_original": "párrafo exacto de la sentencia",
-                                    "vicio": "tipo de
+                        if res_text:
+                            clean_json = res_text.replace("```json", "").replace("```", "").strip()
+                            data = json.loads(clean_json)
+                            criterios_res = data["criterios_evaluados"]
+                            hallazgos_res = data["hallazgos_parrafos"]
+                            ejecutado_con_ia = True
+                        else:
+                            st.warning(f"⚠️ Error al conectar con Gemini ({last_err}). Usando modo demostración.")
+                            
+                    except Exception as e:
+                        st.warning(f"⚠️ Error con la API Key de Gemini ({e}). Usando modo demostración.")
+
+            # --- PROCESAMIENTO CON OPENAI (GPT-4o) ---
+            elif provider == "OpenAI (GPT-4o / GPT-4)":
+                if not api_key.strip():
+                    st.warning("⚠️ No ingresaste una API Key de OpenAI. Se usará el Modo Demostración Local.")
+                elif OpenAI is None:
+                    st.error("La librería openai no está instalada.")
+                else:
+                    try:
+                        client = OpenAI(api_key=api_key)
+                        response = client.chat.completions.create(
+                            model="gpt-4o",
+                            messages=[{"role": "user", "content": prompt_text}],
+                            response_format={"type": "json_object"}
+                        )
+                        data = json.loads(response.choices[0].message.content)
+                        criterios_res = data["criterios_evaluados"]
+                        hallazgos_res = data["hallazgos_parrafos"]
+                        ejecutado_con_ia = True
+                    except Exception as e:
+                        st.warning(f"⚠️ Error con OpenAI ({e}). Usando modo demostración.")
+
+            # --- DEMOSTRACIÓN LOCAL (FALLBACK GARANTIZ
