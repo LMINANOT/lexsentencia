@@ -393,7 +393,7 @@ if uploaded_file:
             for c in criterios_res:
                 st.write(f"**{c['nombre']}** — `{c['score']} / {c['max_pts']} pts` ({c['pct']:.0f}%)")
                 st.progress(min(max(c['pct'] / 100.0, 0.0), 1.0))
-                st.caption(f"📌 {c['detalle']}")
+                st.caption(f"📌 {c.get('detalle', 'Sin observaciones adicionales.')}")
 
             st.markdown("---")
             st.subheader("🔍 Auditoría Párrafo por Párrafo (Subsanación Integral de Defectos)")
