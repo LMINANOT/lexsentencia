@@ -13,7 +13,7 @@ except ImportError:
     genai = None
 
 st.set_page_config(
-    page_title="LexSentencia 2026 - Auditoría Judicial",
+    page_title="LexSentencia 2026 - Auditoría Judicial Peruana",
     page_icon="⚖️",
     layout="wide",
 )
@@ -51,15 +51,15 @@ st.markdown(
 
 st.markdown('<div class="main-title">⚖️ LexSentencia 2026</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano<br><b>Análisis Párrafo por Párrafo con Google Gemini (Estilo Turnitin)</b></div>',
+    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano<br><b>Análisis con Cotejo de Códigos y Jurisprudencia Peruana (Google Gemini)</b></div>',
     unsafe_allow_html=True,
 )
 
 # --- CONFIGURACIÓN DE BARRA LATERAL ---
 st.sidebar.header("⚙️ Motor de IA & API")
-provider = st.sidebar.selectbox("Proveedor de IA", ["Google Gemini (IA Real)", "Modo Demostración Local"])
+provider = st.sidebar.selectbox("Proveedor de IA", ["Google Gemini (Cotejo Normativo Peruano)", "Modo Demostración Local"])
 
-if provider == "Google Gemini (IA Real)":
+if provider == "Google Gemini (Cotejo Normativo Peruano)":
     api_key = st.sidebar.text_input("API Key de Google Gemini", type="password", value="")
 else:
     api_key = ""
@@ -111,10 +111,10 @@ def extract_text(uploaded_file) -> str:
 def create_word_report(filename, score_total, max_score, pct_cumplimiento, pct_riesgo, criterios, hallazgos_parrafos):
     doc = Document()
 
-    title = doc.add_heading("INFORME DE AUDITORÍA JUDICIAL Y REVISIÓN PÁRRAFO POR PÁRRAFO", level=0)
+    title = doc.add_heading("INFORME DE AUDITORÍA JUDICIAL Y COTEJO NORMATIVO PERUANO", level=0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    sub = doc.add_paragraph("LexSentencia 2026 | Estándares de Motivación TC Perú & ODANC")
+    sub = doc.add_paragraph("LexSentencia 2026 | Estándares del Tribunal Constitucional & Códigos Peruanos")
     sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     doc.add_paragraph(f"Documento Auditado: {filename}")
@@ -141,7 +141,7 @@ def create_word_report(filename, score_total, max_score, pct_cumplimiento, pct_r
 
     doc.add_paragraph()
 
-    doc.add_heading("3. AUDITORÍA PÁRRAFO POR PÁRRAFO: OBSERVACIONES Y SUBORDINACIÓN DE TEXTO", level=1)
+    doc.add_heading("3. AUDITORÍA PÁRRAFO POR PÁRRAFO: OBSERVACIONES Y SUBSANACIÓN JURÍDICA", level=1)
     for i, h in enumerate(hallazgos_parrafos, 1):
         doc.add_heading(f"Observación N° {i}: {h['criterio_afectado']}", level=2)
         
@@ -152,7 +152,7 @@ def create_word_report(filename, score_total, max_score, pct_cumplimiento, pct_r
         run_obs.font.color.rgb = RGBColor(180, 0, 0)
         
         p_law = doc.add_paragraph()
-        p_law.add_run("Vicio Detectado / Base Legal: ").bold = True
+        p_law.add_run("Vicio Detectado / Base Legal Peruana: ").bold = True
         p_law.add_run(f"{h['vicio']} | Sustento: {h['base_legal']}")
 
         p_fix = doc.add_paragraph()
@@ -176,7 +176,7 @@ if uploaded_file:
     st.success(f"📄 Documento cargado: **{uploaded_file.name}** ({len(raw_text):,} caracteres)")
 
     if st.button("🚀 Audit Sentencia (Modo Turnitin + Rúbrica Personalizada)", type="primary"):
-        with st.spinner("🔍 Conectando con Google Gemini y auditando la sentencia párrafo por párrafo..."):
+        with st.spinner("🔍 Cotejando con el marco normativo peruano (Constitución, CPC, CPP, CC, CP y STC 00728-2008-PHC/TC)..."):
             
             criterios_res = []
             hallazgos_res = []
@@ -186,33 +186,38 @@ if uploaded_file:
             rubrica_str = "\n".join([f"- {item['Criterio']}: max {item['Max_Pts']} pts" for item in edited_rubrica])
 
             prompt_text = (
-                "Actúa como Auditor Jurídico de Sentencias Peruanas (Art. 139 inc. 5 Constitución, STC 00728-2008-PHC/TC).\n"
-                "Evalúa el texto adjunto conforme a esta RÚBRICA PERSONALIZADA:\n"
+                "Actúa como un Auditor Jurídico Experto en Derecho y Jurisprudencia del Perú.\n"
+                "Tu tarea es auditar minuciosamente la sentencia adjunta verificando su estricto apego a las normas peruanas:\n"
+                "- Constitución Política del Perú (Art. 139 inc. 5 - Garantía de debida motivación).\n"
+                "- Precedente Vinculante STC N° 00728-2008-PHC/TC (Vicios: motivación aparente, insuficiente, incongruente, defectuosa o inexistente).\n"
+                "- Código Procesal Civil (CPC) / Código Procesal Penal (CPP / NCPP).\n"
+                "- Código Civil (CC) / Código Penal (CP).\n\n"
+                "INSTRUCCIONES DE VERIFICACIÓN NORMATIVA:\n"
+                "1. Verifica cuidadosamente que la numera de artículos y normas peruanas citadas sean reales y exactas (evita errores normativos).\n"
+                "2. Evalúa cada criterio de la RÚBRICA PERSONALIZADA asignando un puntaje (score) sin superar el max_pts:\n"
                 + rubrica_str + "\n\n"
-                "Instrucciones:\n"
-                "1. Otorga un puntaje a cada criterio sin exceder su max_pts.\n"
-                "2. Extrae extractos reales de la sentencia que contengan vicios de motivación y redacta la versión subsanada.\n\n"
-                "Responde ÚNICAMENTE en JSON con este formato:\n"
+                "3. Extrae extractos o párrafos textuales reales de la sentencia que contengan vicios de motivación y redacta la versión subsanada conforme a derecho peruano.\n\n"
+                "Responde EXCLUSIVAMENTE en formato JSON con la siguiente estructura exacta (sin texto previo ni posterior):\n"
                 "{\n"
                 '  "criterios_evaluados": [\n'
-                '    {"nombre": "Nombre del Criterio", "score": 3.0, "max_pts": 4.0, "nivel": "Satisfactorio", "detalle": "Justificación"}\n'
+                '    {"nombre": "Nombre del Criterio", "score": 3.0, "max_pts": 4.0, "nivel": "Satisfactorio", "detalle": "Justificación basada en norma o jurisprudencia peruana"}\n'
                 "  ],\n"
                 '  "hallazgos_parrafos": [\n'
                 "    {\n"
                 '      "criterio_afectado": "Nombre del Criterio",\n'
                 '      "texto_original": "Párrafo o frase exacta observada en la sentencia",\n'
-                '      "vicio": "Vicio de motivación identificado",\n'
-                '      "base_legal": "Norma o jurisprudencia peruana aplicable",\n'
-                '      "propuesta_redaccion": "Propuesta de redacción corregida"\n'
+                '      "vicio": "Vicio de motivación según la STC 00728-2008-PHC/TC",\n'
+                '      "base_legal": "Norma o jurisprudencia peruana exacta vulnerada (Ej: Art. 197 del CPC, Art. 139 inc 5 Constitución, etc.)",\n'
+                '      "propuesta_redaccion": "Propuesta de redacción subsanada conforme a la doctrina jurídica peruana"\n'
                 "    }\n"
                 "  ]\n"
                 "}\n\n"
-                "TEXTO DE LA SENTENCIA:\n"
+                "TEXTO DE LA SENTENCIA PERUANA:\n"
                 + raw_text[:14000]
             )
 
             # --- PROCESAMIENTO CON GOOGLE GEMINI ---
-            if provider == "Google Gemini (IA Real)":
+            if provider == "Google Gemini (Cotejo Normativo Peruano)":
                 clean_key = api_key.strip()
                 if not clean_key:
                     st.error("❌ No ingresaste la API Key de Gemini en la barra lateral.")
@@ -222,7 +227,7 @@ if uploaded_file:
                     try:
                         genai.configure(api_key=clean_key)
                         
-                        # Detección dinámica de modelos activos compatibles con la clave
+                        # Detección dinámica de modelos activos
                         detected_models = []
                         try:
                             for m in genai.list_models():
@@ -231,7 +236,6 @@ if uploaded_file:
                         except Exception:
                             pass
 
-                        # Lista priorizada de modelos
                         candidate_list = detected_models + [
                             "gemini-1.5-flash",
                             "models/gemini-1.5-flash",
@@ -248,13 +252,16 @@ if uploaded_file:
                             if not m_name:
                                 continue
                             try:
+                                # Intentamos con herramientas de verificación/búsqueda si están habilitadas en la cuenta
                                 try:
                                     model = genai.GenerativeModel(
                                         m_name,
+                                        tools='google_search_retrieval',
                                         generation_config={"response_mime_type": "application/json"}
                                     )
                                     res = model.generate_content(prompt_text)
                                 except Exception:
+                                    # Fallback estándar si las herramientas de búsqueda no están disponibles
                                     model = genai.GenerativeModel(m_name)
                                     res = model.generate_content(prompt_text)
 
@@ -281,10 +288,10 @@ if uploaded_file:
 
             # --- FALLBACK DEMOSTRACIÓN ---
             if not ejecutado_con_ia:
-                if provider != "Google Gemini (IA Real)":
+                if provider != "Google Gemini (Cotejo Normativo Peruano)":
                     st.info("ℹ️ Ejecutando auditoría en Modo Demostración Local.")
                 else:
-                    st.warning("⚠️ Se mostraron datos de respaldo debido al fallo de conexión.")
+                    st.warning("⚠️ Se mostraron datos de respaldo debido a un fallo de conexión.")
 
                 criterios_res = []
                 for item in edited_rubrica:
@@ -295,7 +302,7 @@ if uploaded_file:
                         "score": assigned_p,
                         "max_pts": max_p,
                         "nivel": "Observado" if assigned_p < (max_p * 0.75) else "Satisfactorio",
-                        "detalle": "Argumentación formal de plantilla; requiere valoración individualizada de los medios probatorios."
+                        "detalle": "Presenta argumentación genérica; requiere fundamentación concreta en normas peruanas e interpretación conjunta de pruebas."
                     })
                 
                 hallazgos_res = [
@@ -308,7 +315,7 @@ if uploaded_file:
                     }
                 ]
             else:
-                st.success(f"✅ **Análisis en Tiempo Real Exitoso** | Procesado con **Google Gemini** (`{model_used_name}`)")
+                st.success(f"✅ **Cotejo Normativo Real Exitoso** | Procesado con **Google Gemini** (`{model_used_name}`)")
 
             # --- CÁLCULO DE MÉTRICAS ---
             total_score = sum(c["score"] for c in criterios_res)
@@ -367,11 +374,11 @@ if uploaded_file:
 
             st.markdown("---")
             st.subheader("🔍 Auditoría Párrafo por Párrafo (Subrayado & Opciones de Subsanación)")
-            st.info("Extractos detectados con vicios de motivación y sus respectivas propuestas de texto subsanado:")
+            st.info("Extractos detectados con vicios de motivación y sus respectivas propuestas de texto subsanado conforme a las leyes peruanas:")
 
             for i, h in enumerate(hallazgos_res, 1):
                 st.markdown(f"#### 📍 Observación N° {i}: {h['criterio_afectado']}")
-                st.markdown(f"<span class='legal-badge'>Vicio: {h['vicio']}</span> | **Base Legal:** {h['base_legal']}", unsafe_allow_html=True)
+                st.markdown(f"<span class='legal-badge'>Vicio: {h['vicio']}</span> | **Base Legal Peruana:** {h['base_legal']}", unsafe_allow_html=True)
                 
                 st.markdown(
                     f"""
@@ -386,7 +393,7 @@ if uploaded_file:
                 st.markdown(
                     f"""
                     <div class="turnitin-fix-box">
-                        <b>✅ PROPUESTA DE REDACCIÓN SUBSANATORIA (PARA REEMPLAZAR):</b><br>
+                        <b>✅ PROPUESTA DE REDACCIÓN SUBSANATORIA (CONFORME A DERECHO PERUANO):</b><br>
                         <b>"{h['propuesta_redaccion']}"</b>
                     </div>
                     """,
