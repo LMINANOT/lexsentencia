@@ -172,7 +172,7 @@ if uploaded_file:
     st.success(f"📄 Sentencia cargada: **{uploaded_file.name}** ({len(raw_text):,} caracteres)")
 
     if st.button("🚀 Auditar Sentencia (Rúbrica Personalizable + Subsanaciones)", type="primary"):
-        with st.spinner("🔍 Analizando la sentencia y generando subsanaciones para todos los puntos observados..."):
+        with st.spinner("🔍 Analizando la sentencia completa y generando subsanaciones para los párrafos observados..."):
             
             criterios_res = []
             hallazgos_res = []
@@ -183,34 +183,34 @@ if uploaded_file:
 
             prompt_text = (
                 "Actúa como un Auditor Jurídico Experto en Derecho Peruano.\n"
-                "Audita la sentencia adjunta verificando el cumplimiento del derecho peruano:\n"
+                "Se te presenta el TEXTO INTEGRAL de una sentencia judicial peruana de extensión amplia. Realiza una auditoría ecuánime y rigurosa verificando el cumplimiento del marco legal peruano:\n"
                 "- Art. 139 inc. 5 de la Constitución Política del Perú.\n"
                 "- Precedente vinculante STC N° 00728-2008-PHC/TC (Vicios de motivación).\n"
-                "- Normativa peruana aplicable (CPC, CPP, CC o CP según el caso).\n\n"
+                "- Normativa procesal y sustantiva peruana aplicable (CPC, CPP, CC, CP o Ley Procesal del Trabajo según la materia).\n\n"
                 "RÚBRICA DE EVALUACIÓN PERSONALIZADA:\n"
                 + rubrica_str + "\n\n"
-                "INSTRUCCIONES OBLIGATORIAS DE AUDITORÍA:\n"
-                "1. Evalúa cada criterio de la rúbrica asignando un score exacto sin superar max_pts.\n"
-                "2. PARA CADA CRITERIO DONDE ASIGNES UN PUNTAJE MENOR AL MÁXIMO, DEBES GENERAR OBLIGATORIAMENTE AL MENOS UN HALLAZGO EN 'hallazgos_parrafos'.\n"
-                "3. En 'texto_original', cita el párrafo o frase exacta de la sentencia que contiene la deficiencia. Si el documento está incompleto o falta una sección entera (ej. falta valoración probatoria o fallo), especifica exactamente qué parte falta.\n"
-                "4. En 'propuesta_redaccion', redacta la versión corregida y subsanada detallada que el juez debió escribir para que el criterio alcance la nota máxima (100% de cumplimiento).\n"
-                "5. Responde EXCLUSIVAMENTE un objeto JSON válido con esta estructura exacta (sin texto ni marcas adicionales):\n"
+                "REGLAS CRÍTICAS DE AUDITORÍA Y SUBSANACIÓN:\n"
+                "1. CRITERIO DE EVALUACIÓN JUSTO: Lee TODO el documento de principio a fin antes de puntuar. Sé ponderado y equitativo. No reduzcas severamente el puntaje ni declares alto riesgo de nulidad por meros detalles de estilo si la resolución presenta una estructura lógica clara, fundamentación jurídica y valoración probatoria sustancial.\n"
+                "2. IDENTIFICACIÓN Y DISTRIBUCIÓN DE OBSERVACIONES: Identifica entre 3 y 6 párrafos o secciones específicas con deficiencias argumentativas o vicios de motivación distribuidas en distintas partes de la sentencia (considerandos fácticos, juicio probatorio, análisis normativo o parte resolutiva).\n"
+                "3. UBICACIÓN EXACTA EN 'texto_original': DEBES ANTEPONER LA UBICACIÓN EXACTA entre corchetes antes de citar el texto literal (Ejemplo: '[CONSIDERANDO SÉTIMO, PÁRRAFO 2]: Que, sobre la prueba documental consistente en...'). Cita la frase o párrafo de la sentencia de forma LITERAL e INALTERADA, tal como aparece en el documento.\n"
+                "4. SUBSANACIÓN DIRECTA EN 'propuesta_redaccion': Redacta la versión corregida y fundamentada que reemplaza de forma exacta a dicho párrafo u observación, permitiendo al usuario saber dónde y cómo subsanar la sentencia.\n"
+                "5. Estructura la respuesta EXCLUSIVAMENTE como un objeto JSON válido (sin texto adicional ni marcado markdown):\n"
                 "{\n"
                 '  "criterios_evaluados": [\n'
-                '    {"nombre": "Nombre Criterio", "score": 3.0, "max_pts": 4.0, "nivel": "Observado", "detalle": "Justificación jurídica"}\n'
+                '    {"nombre": "Nombre Criterio", "score": 3.5, "max_pts": 4.0, "nivel": "Conforme", "detalle": "Justificación jurídica equilibrada"}\n'
                 "  ],\n"
                 '  "hallazgos_parrafos": [\n'
                 "    {\n"
                 '      "criterio_afectado": "Nombre Criterio",\n'
-                '      "texto_original": "Extracto textual exacto o descripción de la omisión del párrafo",\n'
+                '      "texto_original": "[CONSIDERANDO X, PÁRRAFO Y]: Cita literal exacta e inalterada del texto observado",\n'
                 '      "vicio": "Vicio de motivación según STC 00728-2008-PHC/TC",\n'
-                '      "base_legal": "Artículos o jurisprudencia peruana aplicable",\n'
-                '      "propuesta_redaccion": "Redacción subsanatoria integral para alcanzar el cumplimiento normativo"\n'
+                '      "base_legal": "Normativa o jurisprudencia peruana aplicable",\n'
+                '      "propuesta_redaccion": "Texto subsanado listo para reemplazar al párrafo original observado"\n'
                 "    }\n"
                 "  ]\n"
                 "}\n\n"
                 "TEXTO COMPLETO DE LA SENTENCIA AUDITADA:\n"
-                + raw_text[:25000]
+                + raw_text[:180000]
             )
 
             # --- CONEXIÓN DINÁMICA HTTP REST A GOOGLE GEMINI ---
@@ -331,10 +331,10 @@ if uploaded_file:
                 hallazgos_res = [
                     {
                         "criterio_afectado": edited_rubrica[2]["Criterio"] if len(edited_rubrica) > 2 else "Juicio Probatorio",
-                        "texto_original": "CONSIDERANDO CUARTO: Que, la prueba documental presentada por la parte demandada no desvirtúa las pretensiones de la demandante...",
+                        "texto_original": "[CONSIDERANDO SÉTIMO, PÁRRAFO 2]: Que, la prueba documental presentada por la parte demandada no desvirtúa las pretensiones de la demandante...",
                         "vicio": "Motivación Aparente y Defecto de Valoración Probatoria (STC 00728-2008-PHC/TC)",
                         "base_legal": "Art. 197 del Código Procesal Civil Peruano",
-                        "propuesta_redaccion": "CONSIDERANDO CUARTO (REVISIÓN SUBSANATORIA): Respecto a la documental N° 04 presentada por la defensa, este despacho advierte que si bien sostiene la falta de responsabilidad, queda desvirtuada al contrastarse de forma conjunta con la prueba testimonial de fojas 45, toda vez que no justifica la omisión del deber de cuidado conforme al Art. 197 del CPC."
+                        "propuesta_redaccion": "[CONSIDERANDO SÉTIMO - REVISIÓN SUBSANATORIA]: Respecto a la documental N° 04 presentada por la defensa, este despacho advierte que si bien sostiene la falta de responsabilidad, queda desvirtuada al contrastarse de forma conjunta con la prueba testimonial de fojas 45, toda vez que no justifica la omisión del deber de cuidado conforme al Art. 197 del CPC."
                     }
                 ]
             else:
@@ -397,7 +397,7 @@ if uploaded_file:
 
             st.markdown("---")
             st.subheader("🔍 Auditoría Párrafo por Párrafo (Subsanación Integral de Defectos)")
-            st.info("A continuación se detallan todas las observaciones detectadas con su correspondiente propuesta de redacción subsanatoria para alcanzar el 100% de cumplimiento:")
+            st.info("A continuación se detallan las observaciones detectadas indicando su ubicación exacta en el texto y su respectiva propuesta de redacción subsanatoria:")
 
             for i, h in enumerate(hallazgos_res, 1):
                 st.markdown(f"#### 📍 Observación N° {i}: {h['criterio_afectado']}")
@@ -406,7 +406,7 @@ if uploaded_file:
                 st.markdown(
                     f"""
                     <div class="obs-box">
-                        <b>⚠️ PÁRRAFO ORIGINAL OBSERVADO EN LA SENTENCIA:</b><br>
+                        <b>⚠️ PÁRRAFO ORIGINAL OBSERVADO Y SU UBICACIÓN EN LA SENTENCIA:</b><br>
                         <i>"{h['texto_original']}"</i>
                     </div>
                     """,
