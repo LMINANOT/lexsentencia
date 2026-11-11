@@ -51,19 +51,28 @@ st.markdown(
 
 st.markdown('<div class="main-title">⚖️ LexSentencia 2026</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano<br><b>Análisis con Cotejo de Códigos y Jurisprudencia Peruana (Google Gemini)</b></div>',
+    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano<br><b>Análisis con Cotejo de Códigos Digitales y Jurisprudencia (Google Gemini)</b></div>',
     unsafe_allow_html=True,
 )
 
 # --- CONFIGURACIÓN DE BARRA LATERAL ---
 st.sidebar.header("⚙️ Motor de IA & API")
-provider = st.sidebar.selectbox("Proveedor de IA", ["Google Gemini (Cotejo Normativo Peruano)", "Modo Demostración Local"])
+provider = st.sidebar.selectbox("Proveedor de IA", ["Google Gemini (IA Real)", "Modo Demostración Local"])
 
-if provider == "Google Gemini (Cotejo Normativo Peruano)":
+if provider == "Google Gemini (IA Real)":
     api_key = st.sidebar.text_input("API Key de Google Gemini", type="password", value="")
 else:
     api_key = ""
     st.sidebar.info("💡 El Modo Demostración muestra datos de prueba sin consumir API Key.")
+
+st.sidebar.markdown("---")
+st.sidebar.header("📚 Base Normativa Digital (Opcional)")
+normative_files = st.sidebar.file_uploader(
+    "Subir Códigos / Leyes / Jurisprudencia en PDF/Word",
+    type=["pdf", "docx", "txt"],
+    accept_multiple_files=True,
+    help="Puedes subir el CPC, CPP, CC, CP o sentencias del TC en PDF para contrastar la norma exacta."
+)
 
 st.sidebar.markdown("---")
 st.sidebar.header("🛠️ Configuración de Rúbrica Dinámica")
@@ -173,10 +182,19 @@ uploaded_file = st.file_uploader("📁 Cargar Sentencia Judicial (PDF o Word)", 
 
 if uploaded_file:
     raw_text = extract_text(uploaded_file)
-    st.success(f"📄 Documento cargado: **{uploaded_file.name}** ({len(raw_text):,} caracteres)")
+    st.success(f"📄 Sentencia cargada: **{uploaded_file.name}** ({len(raw_text):,} caracteres)")
+
+    # Procesar archivos normativos digitales cargados en la barra lateral
+    normative_context = ""
+    if normative_files:
+        normative_context = "\n\n--- CÓDIGOS Y NORMAS DIGITALES DE REFERENCIA PROPORCIONADOS ---\n"
+        for n_file in normative_files:
+            txt_norm = extract_text(n_file)
+            normative_context += f"\n[Documento Normativo: {n_file.name}]\n" + txt_norm[:6000] + "\n"
+        st.info(f"📚 Se adjuntaron **{len(normative_files)}** documentos normativos para el cotejo legal exacto.")
 
     if st.button("🚀 Audit Sentencia (Modo Turnitin + Rúbrica Personalizada)", type="primary"):
-        with st.spinner("🔍 Cotejando con el marco normativo peruano (Constitución, CPC, CPP, CC, CP y STC 00728-2008-PHC/TC)..."):
+        with st.spinner("🔍 Auditando la sentencia y cotejando normas peruanas con Google Gemini..."):
             
             criterios_res = []
             hallazgos_res = []
@@ -186,109 +204,101 @@ if uploaded_file:
             rubrica_str = "\n".join([f"- {item['Criterio']}: max {item['Max_Pts']} pts" for item in edited_rubrica])
 
             prompt_text = (
-                "Actúa como un Auditor Jurídico Experto en Derecho y Jurisprudencia del Perú.\n"
-                "Tu tarea es auditar minuciosamente la sentencia adjunta verificando su estricto apego a las normas peruanas:\n"
-                "- Constitución Política del Perú (Art. 139 inc. 5 - Garantía de debida motivación).\n"
-                "- Precedente Vinculante STC N° 00728-2008-PHC/TC (Vicios: motivación aparente, insuficiente, incongruente, defectuosa o inexistente).\n"
-                "- Código Procesal Civil (CPC) / Código Procesal Penal (CPP / NCPP).\n"
-                "- Código Civil (CC) / Código Penal (CP).\n\n"
-                "INSTRUCCIONES DE VERIFICACIÓN NORMATIVA:\n"
-                "1. Verifica cuidadosamente que la numera de artículos y normas peruanas citadas sean reales y exactas (evita errores normativos).\n"
-                "2. Evalúa cada criterio de la RÚBRICA PERSONALIZADA asignando un puntaje (score) sin superar el max_pts:\n"
+                "Actúa como un Auditor Jurídico Experto en Derecho Peruano.\n"
+                "Tu objetivo es auditar la sentencia adjunta verificando su estricto apego a la legislación peruana:\n"
+                "- Constitución del Perú (Art. 139 inc. 5)\n"
+                "- STC N° 00728-2008-PHC/TC (Vicios de motivación)\n"
+                "- Código Procesal Civil (CPC), Código Procesal Penal (CPP), Código Civil (CC) y Código Penal (CP).\n\n"
+                "RÚBRICA DE EVALUACIÓN:\n"
                 + rubrica_str + "\n\n"
-                "3. Extrae extractos o párrafos textuales reales de la sentencia que contengan vicios de motivación y redacta la versión subsanada conforme a derecho peruano.\n\n"
-                "Responde EXCLUSIVAMENTE en formato JSON con la siguiente estructura exacta (sin texto previo ni posterior):\n"
+                + normative_context + "\n\n"
+                "Instrucciones:\n"
+                "1. Verifica cuidadosamente que los números de artículo citados correspondan a la norma exacta.\n"
+                "2. Evalúa cada criterio asignando un puntaje (score) sin superar el max_pts.\n"
+                "3. Responde EXCLUSIVAMENTE en formato JSON estricto con esta estructura exacta:\n"
                 "{\n"
                 '  "criterios_evaluados": [\n'
-                '    {"nombre": "Nombre del Criterio", "score": 3.0, "max_pts": 4.0, "nivel": "Satisfactorio", "detalle": "Justificación basada en norma o jurisprudencia peruana"}\n'
+                '    {"nombre": "Nombre Criterio", "score": 3.0, "max_pts": 4.0, "nivel": "Satisfactorio", "detalle": "Sustento normativo peruano"}\n'
                 "  ],\n"
                 '  "hallazgos_parrafos": [\n'
                 "    {\n"
-                '      "criterio_afectado": "Nombre del Criterio",\n'
-                '      "texto_original": "Párrafo o frase exacta observada en la sentencia",\n'
-                '      "vicio": "Vicio de motivación según la STC 00728-2008-PHC/TC",\n'
-                '      "base_legal": "Norma o jurisprudencia peruana exacta vulnerada (Ej: Art. 197 del CPC, Art. 139 inc 5 Constitución, etc.)",\n'
-                '      "propuesta_redaccion": "Propuesta de redacción subsanada conforme a la doctrina jurídica peruana"\n'
+                '      "criterio_afectado": "Nombre Criterio",\n'
+                '      "texto_original": "Extracto textual exacto hallado en la sentencia",\n'
+                '      "vicio": "Vicio de motivación según STC 00728-2008-PHC/TC",\n'
+                '      "base_legal": "Norma peruana vulnerada (ej. Art. 197 del CPC, Art. 139 inc. 5 Constitución)",\n'
+                '      "propuesta_redaccion": "Redacción corregida conforme a derecho peruano"\n'
                 "    }\n"
                 "  ]\n"
                 "}\n\n"
-                "TEXTO DE LA SENTENCIA PERUANA:\n"
+                "TEXTO REAL DE LA SENTENCIA A AUDITAR:\n"
                 + raw_text[:14000]
             )
 
             # --- PROCESAMIENTO CON GOOGLE GEMINI ---
-            if provider == "Google Gemini (Cotejo Normativo Peruano)":
+            if provider == "Google Gemini (IA Real)":
                 clean_key = api_key.strip()
                 if not clean_key:
                     st.error("❌ No ingresaste la API Key de Gemini en la barra lateral.")
                 elif genai is None:
-                    st.error("❌ La librería google-generativeai no está instalada correctamente.")
+                    st.error("❌ La librería google-generativeai no está instalada.")
                 else:
                     try:
                         genai.configure(api_key=clean_key)
                         
-                        # Detección dinámica de modelos activos
-                        detected_models = []
-                        try:
-                            for m in genai.list_models():
-                                if 'generateContent' in m.supported_generation_methods:
-                                    detected_models.append(m.name)
-                        except Exception:
-                            pass
-
-                        candidate_list = detected_models + [
-                            "gemini-1.5-flash",
-                            "models/gemini-1.5-flash",
-                            "gemini-1.5-pro",
-                            "models/gemini-1.5-pro",
-                            "gemini-2.0-flash",
-                            "gemini-pro"
-                        ]
-
+                        candidate_models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
                         res_text = None
-                        last_exception = None
+                        last_err = None
 
-                        for m_name in candidate_list:
-                            if not m_name:
-                                continue
+                        for m_name in candidate_models:
                             try:
-                                # Intentamos con herramientas de verificación/búsqueda si están habilitadas en la cuenta
-                                try:
-                                    model = genai.GenerativeModel(
-                                        m_name,
-                                        tools='google_search_retrieval',
-                                        generation_config={"response_mime_type": "application/json"}
-                                    )
-                                    res = model.generate_content(prompt_text)
-                                except Exception:
-                                    # Fallback estándar si las herramientas de búsqueda no están disponibles
-                                    model = genai.GenerativeModel(m_name)
-                                    res = model.generate_content(prompt_text)
-
+                                model = genai.GenerativeModel(
+                                    m_name,
+                                    generation_config={"response_mime_type": "application/json"}
+                                )
+                                res = model.generate_content(prompt_text)
                                 if res and res.text:
                                     res_text = res.text
                                     model_used_name = m_name
                                     break
-                            except Exception as ex:
-                                last_exception = ex
-                                continue
+                            except Exception as ex1:
+                                last_err = ex1
+                                try:
+                                    model = genai.GenerativeModel(m_name)
+                                    res = model.generate_content(prompt_text)
+                                    if res and res.text:
+                                        res_text = res.text
+                                        model_used_name = m_name
+                                        break
+                                except Exception as ex2:
+                                    last_err = ex2
+                                    continue
 
                         if res_text:
-                            clean_json = res_text.replace("```json", "").replace("```", "").strip()
-                            data = json.loads(clean_json)
+                            clean_str = res_text.strip()
+                            if "```json" in clean_str:
+                                clean_str = clean_str.split("```json")[1].split("```")[0].strip()
+                            elif "```" in clean_str:
+                                clean_str = clean_str.split("```")[1].split("```")[0].strip()
+                            
+                            start_idx = clean_str.find("{")
+                            end_idx = clean_str.rfind("}")
+                            if start_idx != -1 and end_idx != -1:
+                                clean_str = clean_str[start_idx:end_idx+1]
+
+                            data = json.loads(clean_str)
                             criterios_res = data.get("criterios_evaluados", [])
                             hallazgos_res = data.get("hallazgos_parrafos", [])
                             if criterios_res and hallazgos_res:
                                 ejecutado_con_ia = True
                         else:
-                            st.error(f"❌ No se pudo conectar con Gemini: {last_exception}")
+                            st.error(f"❌ Error de la API de Google: {last_err}")
 
                     except Exception as e:
-                        st.error(f"❌ Error de autenticación con la API Key: {e}")
+                        st.error(f"❌ Error al configurar la clave de Gemini: {e}")
 
-            # --- FALLBACK DEMOSTRACIÓN ---
+            # --- MODO DEMOSTRACIÓN LOCAL ---
             if not ejecutado_con_ia:
-                if provider != "Google Gemini (Cotejo Normativo Peruano)":
+                if provider != "Google Gemini (IA Real)":
                     st.info("ℹ️ Ejecutando auditoría en Modo Demostración Local.")
                 else:
                     st.warning("⚠️ Se mostraron datos de respaldo debido a un fallo de conexión.")
@@ -315,7 +325,7 @@ if uploaded_file:
                     }
                 ]
             else:
-                st.success(f"✅ **Cotejo Normativo Real Exitoso** | Procesado con **Google Gemini** (`{model_used_name}`)")
+                st.success(f"✅ **¡Auditoría Real Exitosa!** Sentencia procesada en tiempo real con **Google Gemini** (`{model_used_name}`)")
 
             # --- CÁLCULO DE MÉTRICAS ---
             total_score = sum(c["score"] for c in criterios_res)
