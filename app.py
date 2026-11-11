@@ -195,7 +195,6 @@ if uploaded_file:
 
             rubrica_str = "\n".join([f"- {item['Criterio']}: max {item['Max_Pts']} pts" for item in edited_rubrica])
 
-            # Construcción segura del prompt
             prompt_text = (
                 "Actúa como Auditor Jurídico de Sentencias Peruanas.\n"
                 "Evalúa la sentencia según esta rúbrica:\n"
@@ -228,11 +227,34 @@ if uploaded_file:
                 else:
                     try:
                         genai.configure(api_key=api_key)
-                        candidate_models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
+                        
+                        # Obtener dinámicamente el nombre exacto de modelo compatible en tu cuenta
+                        active_model_name = None
+                        try:
+                            available_models = genai.list_models()
+                            for m in available_models:
+                                if 'generateContent' in m.supported_generation_methods:
+                                    if 'flash' in m.name or 'pro' in m.name:
+                                        active_model_name = m.name
+                                        break
+                        except Exception:
+                            pass
+
+                        candidate_list = [
+                            active_model_name,
+                            "models/gemini-1.5-flash",
+                            "models/gemini-1.5-pro",
+                            "models/gemini-2.0-flash",
+                            "gemini-1.5-flash",
+                            "gemini-1.5-pro"
+                        ]
+                        
                         res_text = None
                         last_err = None
-                        
-                        for m_name in candidate_models:
+
+                        for m_name in candidate_list:
+                            if not m_name:
+                                continue
                             try:
                                 model = genai.GenerativeModel(m_name)
                                 res = model.generate_content(prompt_text)
@@ -276,4 +298,14 @@ if uploaded_file:
                     except Exception as e:
                         st.warning(f"⚠️ Error con OpenAI ({e}). Usando modo demostración.")
 
-            # --- DEMOSTRACIÓN LOCAL (FALLBACK GARANTIZ
+            # --- DEMOSTRACIÓN LOCAL (FALLBACK GARANTIZADO) ---
+            if not ejecutado_con_ia or not criterios_res:
+                criterios_res = []
+                for item in edited_rubrica:
+                    max_p = item["Max_Pts"]
+                    assigned_p = round(max_p * 0.65, 1)
+                    criterios_res.append({
+                        "nombre": item["Criterio"],
+                        "score": assigned_p,
+                        "max_pts": max_p,
+                        "nivel": "Observado" if assigned_p < max_p *
