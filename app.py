@@ -334,4 +334,115 @@ if uploaded_file:
                 
                 hallazgos_res = [
                     {
-                        "criterio_afectado": edited_rubrica[2]["Criterio"]
+                        "criterio_afectado": edited_rubrica[2]["Criterio"] if len(edited_rubrica) > 2 else "Juicio Probatorio",
+                        "texto_original": "[CONSIDERANDO SÉTIMO - PÁRRAFO 2]: Que, la prueba documental presentada por la parte demandada no desvirtúa las pretensiones de la demandante...",
+                        "vicio": "Motivación Aparente y Defecto de Valoración Probatoria (STC 00728-2008-PHC/TC)",
+                        "base_legal": "Art. 197 del Código Procesal Civil Peruano",
+                        "propuesta_redaccion": "[REEMPLAZO DIRECTO DEL PÁRRAFO SÉTIMO]: Respecto a la documental N° 04 presentada por la defensa, este despacho advierte que si bien sostiene la falta de responsabilidad, queda desvirtuada al contrastarse de forma conjunta con la prueba testimonial de fojas 45, toda vez que no justifica la omisión del deber de cuidado conforme al Art. 197 del CPC."
+                    }
+                ]
+            else:
+                st.success(f"✅ **¡Auditoría Real Exitosa!** Sentencia procesada en tiempo real con **Google Gemini** (`{model_used_name}`)")
+
+            # --- CÁLCULO DE MÉTRICAS ---
+            total_score = sum(c["score"] for c in criterios_res)
+            for c in criterios_res:
+                c["pct"] = (c["score"] / c["max_pts"]) * 100 if c["max_pts"] > 0 else 0
+
+            pct_cumplimiento = (total_score / max_score_posible) * 100 if max_score_posible > 0 else 0
+            pct_riesgo = round(100.0 - pct_cumplimiento, 1)
+
+            st.markdown("---")
+            st.subheader("📊 Métrica Global de Auditoría Judicial")
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown(
+                    f"""
+                <div class="metric-box">
+                    <small>CUMPLIMIENTO NORMATIVO</small>
+                    <div class="metric-value">{pct_cumplimiento:.1f}%</div>
+                    <small>Score: <b>{total_score:.1f} / {max_score_posible:.1f} pts</b></small>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+
+            with col2:
+                st.markdown(
+                    f"""
+                <div class="metric-box">
+                    <small>RIESGO DE NULIDAD / DEFECTOS</small>
+                    <div class="metric-risk">{pct_riesgo:.1f}%</div>
+                    <small>Párrafos críticos: <b>{len(hallazgos_res)}</b></small>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+
+            with col3:
+                nivel_txt = "Sobresaliente / Conforme" if pct_cumplimiento >= 85 else ("Observado / Subsanable" if pct_cumplimiento >= 60 else "Alto Riesgo de Nulidad")
+                st.markdown(
+                    f"""
+                <div class="metric-box">
+                    <small>ESTADO DE LA SENTENCIA</small>
+                    <div style="font-size: 1.3rem; font-weight:800; color:#1E3A8A; margin-top:15px;">{nivel_txt}</div>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+
+            st.markdown("---")
+            st.subheader("📋 Calificación por Criterios (Rúbrica Dinámica Configurada)")
+            for c in criterios_res:
+                st.write(f"**{c['nombre']}** — `{c['score']} / {c['max_pts']} pts` ({c['pct']:.0f}%)")
+                st.progress(min(max(c['pct'] / 100.0, 0.0), 1.0))
+                st.caption(f"📌 {c['detalle']}")
+
+            st.markdown("---")
+            st.subheader("🔍 Auditoría Párrafo por Párrafo (Subsanación Integral de Defectos)")
+            st.info("Extractos detectados con vicios de motivación y sus respectivas propuestas de texto subsanado conforme a las leyes peruanas:")
+
+            for i, h in enumerate(hallazgos_res, 1):
+                st.markdown(f"#### 📍 Observación N° {i}: {h['criterio_afectado']}")
+                st.markdown(f"<span class='legal-badge'>Vicio: {h['vicio']}</span> | **Base Legal Peruana:** {h['base_legal']}", unsafe_allow_html=True)
+                
+                st.markdown(
+                    f"""
+                    <div class="obs-box">
+                        <b>⚠️ PÁRRAFO ORIGINAL OBSERVADO EN LA SENTENCIA:</b><br>
+                        <i>"{h['texto_original']}"</i>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                
+                st.markdown(
+                    f"""
+                    <div class="fix-box">
+                        <b>✅ PROPUESTA DE REDACCIÓN SUBSANATORIA (CONFORME A DERECHO PERUANO):</b><br>
+                        <b>"{h['propuesta_redaccion']}"</b>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                st.markdown("---")
+
+            # --- BOTÓN DE DESCARGA EN WORD ---
+            word_file = create_word_report(
+                uploaded_file.name,
+                total_score,
+                max_score_posible,
+                pct_cumplimiento,
+                pct_riesgo,
+                criterios_res,
+                hallazgos_res,
+            )
+
+            st.download_button(
+                label="📄 Descargar Informe Oficial en Word (.docx)",
+                data=word_file,
+                file_name=f"Informe_Auditoria_LexSentencia_{uploaded_file.name}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                type="primary",
+            )
