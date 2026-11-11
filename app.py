@@ -1,7 +1,5 @@
 import io
 import json
-import re
-import urllib.request
 import docx
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -53,7 +51,7 @@ st.markdown(
 
 st.markdown('<div class="main-title">⚖️ LexSentencia 2026</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano<br><b>Análisis con Cotejo de Archivos Digitales y URLs Web (Google Gemini)</b></div>',
+    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano<br><b>Análisis Párrafo por Párrafo (Estilo Turnitin) con Google Gemini</b></div>',
     unsafe_allow_html=True,
 )
 
@@ -66,22 +64,6 @@ if provider == "Google Gemini (IA Real)":
 else:
     api_key = ""
     st.sidebar.info("💡 El Modo Demostración muestra datos de prueba sin consumir API Key.")
-
-st.sidebar.markdown("---")
-st.sidebar.header("📚 Base Normativa Digital (Opcional)")
-
-normative_files = st.sidebar.file_uploader(
-    "1. Subir Códigos / Leyes en PDF o Word",
-    type=["pdf", "docx", "txt"],
-    accept_multiple_files=True,
-    help="Puedes subir el CPC, CPP, CC, CP o sentencias del TC en PDF/Word."
-)
-
-urls_input = st.sidebar.text_area(
-    "2. Pegar URLs de Normas o Jurisprudencia",
-    placeholder="https://busquedas.elperuano.pe/...\nhttps://lpderecho.pe/...",
-    help="Pega uno o más enlaces web (uno por línea) para extraer la norma o fallo del TC."
-)
 
 st.sidebar.markdown("---")
 st.sidebar.header("🛠️ Configuración de Rúbrica Dinámica")
@@ -126,37 +108,13 @@ def extract_text(uploaded_file) -> str:
     return text
 
 
-def extract_url_text(url: str) -> str:
-    url = url.strip()
-    if not url:
-        return ""
-    if not url.startswith("http://") and not url.startswith("https://"):
-        url = "https://" + url
-    try:
-        req = urllib.request.Request(
-            url,
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        )
-        with urllib.request.urlopen(req, timeout=7) as response:
-            html = response.read().decode('utf-8', errors='ignore')
-        
-        text = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL)
-        text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL)
-        text = re.sub(r'<[^>]+>', ' ', text)
-        lines = (line.strip() for line in text.splitlines())
-        clean_text = ' '.join(chunk for chunk in lines if chunk)
-        return clean_text[:6000]
-    except Exception as e:
-        return f"[Error al extraer contenido de {url}: {e}]"
-
-
 def create_word_report(filename, score_total, max_score, pct_cumplimiento, pct_riesgo, criterios, hallazgos_parrafos):
     doc = Document()
 
-    title = doc.add_heading("INFORME DE AUDITORÍA JUDICIAL Y COTEJO NORMATIVO PERUANO", level=0)
+    title = doc.add_heading("INFORME DE AUDITORÍA JUDICIAL Y MOTIVACIÓN SENTENCIA", level=0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    sub = doc.add_paragraph("LexSentencia 2026 | Estándares del Tribunal Constitucional & Códigos Peruanos")
+    sub = doc.add_paragraph("LexSentencia 2026 | Estándares del Tribunal Constitucional (STC 00728-2008-PHC/TC)")
     sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     doc.add_paragraph(f"Documento Auditado: {filename}")
@@ -217,30 +175,8 @@ if uploaded_file:
     raw_text = extract_text(uploaded_file)
     st.success(f"📄 Sentencia cargada: **{uploaded_file.name}** ({len(raw_text):,} caracteres)")
 
-    # Procesamiento de contexto normativo (Archivos + URLs)
-    normative_context = ""
-    sources_count = 0
-
-    if normative_files:
-        normative_context += "\n--- ARCHIVOS NORMATIVOS ADJUNTOS ---\n"
-        for n_file in normative_files:
-            txt_norm = extract_text(n_file)
-            normative_context += f"\n[Documento: {n_file.name}]\n" + txt_norm[:5000] + "\n"
-            sources_count += 1
-
-    if urls_input.strip():
-        normative_context += "\n--- NORMAS Y JURISPRUDENCIA EXTRAÍDAS DE URLS WEB ---\n"
-        urls_list = [u.strip() for u in urls_input.split("\n") if u.strip()]
-        for u in urls_list:
-            u_text = extract_url_text(u)
-            normative_context += f"\n[Fuente URL: {u}]\n" + u_text + "\n"
-            sources_count += 1
-
-    if sources_count > 0:
-        st.info(f"📚 Se vincularon **{sources_count} fuentes externas** (archivos/URLs) para el cotejo normativo.")
-
     if st.button("🚀 Audit Sentencia (Modo Turnitin + Rúbrica Personalizada)", type="primary"):
-        with st.spinner("🔍 Analizando sentencia y cotejando normas peruanas / URLs con Google Gemini..."):
+        with st.spinner("🔍 Analizando la motivación de la sentencia con Google Gemini..."):
             
             criterios_res = []
             hallazgos_res = []
@@ -250,33 +186,32 @@ if uploaded_file:
             rubrica_str = "\n".join([f"- {item['Criterio']}: max {item['Max_Pts']} pts" for item in edited_rubrica])
 
             prompt_text = (
-                "Actúa como Auditor Jurídico Experto en Derecho Peruano.\n"
-                "Audita la sentencia adjunta verificando:\n"
-                "- Art. 139 inc. 5 de la Constitución del Perú\n"
-                "- STC N° 00728-2008-PHC/TC (vicios de motivación)\n"
-                "- Código Procesal Civil, Código Procesal Penal, Código Civil y Código Penal del Perú.\n\n"
-                "RÚBRICA DE EVALUACIÓN:\n"
+                "Actúa como un Auditor Jurídico Experto en Derecho Peruano.\n"
+                "Audita la sentencia adjunta verificando el cumplimiento estricto del derecho peruano:\n"
+                "- Art. 139 inc. 5 de la Constitución Política del Perú (Debida motivación de las resoluciones judiciales).\n"
+                "- Precedente vinculante STC N° 00728-2008-PHC/TC (Motivación aparente, insuficiente, incongruente, defectuosa o inexistente).\n"
+                "- Normativa peruana aplicable (Código Procesal Civil, Código Procesal Penal, Código Civil o Código Penal según corresponda).\n\n"
+                "RÚBRICA DE EVALUACIÓN PERSONALIZADA:\n"
                 + rubrica_str + "\n\n"
-                + normative_context + "\n\n"
                 "INSTRUCCIONES:\n"
-                "1. Contrasta las normas de la sentencia con las fuentes normativas y URLs proporcionadas para evitar errores normativos.\n"
-                "2. Asigna puntajes por criterio sin superar su max_pts.\n"
-                "3. Responde EXCLUSIVAMENTE un objeto JSON válido con esta estructura exacta:\n"
+                "1. Evalúa cada criterio de la rúbrica asignando un score exacto sin superar el max_pts.\n"
+                "2. Extrae los párrafos o frases exactas de la sentencia que contengan vicios de motivación y redacta una propuesta de texto subsanada conforme a derecho.\n"
+                "3. Responde EXCLUSIVAMENTE un objeto JSON estricto con la siguiente estructura (sin formato de marcado adicional):\n"
                 "{\n"
                 '  "criterios_evaluados": [\n'
-                '    {"nombre": "Nombre Criterio", "score": 3.0, "max_pts": 4.0, "nivel": "Satisfactorio", "detalle": "Sustento normativo peruano"}\n'
+                '    {"nombre": "Nombre Criterio", "score": 3.0, "max_pts": 4.0, "nivel": "Satisfactorio", "detalle": "Sustento jurídico en norma peruana"}\n'
                 "  ],\n"
                 '  "hallazgos_parrafos": [\n'
                 "    {\n"
                 '      "criterio_afectado": "Nombre Criterio",\n'
                 '      "texto_original": "Extracto textual exacto hallado en la sentencia",\n'
                 '      "vicio": "Vicio de motivación según STC 00728-2008-PHC/TC",\n'
-                '      "base_legal": "Norma peruana vulnerada (ej. Art. 197 del CPC, Art. 139 inc. 5 Constitución)",\n'
-                '      "propuesta_redaccion": "Redacción corregida conforme a derecho peruano"\n'
+                '      "base_legal": "Artículos específicos o jurisprudencia peruana aplicable",\n'
+                '      "propuesta_redaccion": "Propuesta de redacción subsanada conforme a derecho peruano"\n'
                 "    }\n"
                 "  ]\n"
                 "}\n\n"
-                "TEXTO REAL DE LA SENTENCIA:\n"
+                "TEXTO DE LA SENTENCIA A AUDITAR:\n"
                 + raw_text[:14000]
             )
 
@@ -291,7 +226,7 @@ if uploaded_file:
                     try:
                         genai.configure(api_key=clean_key)
                         
-                        candidate_models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
+                        candidate_models = ["gemini-1.5-flash", "gemini-1.5-pro"]
                         res_text = None
                         last_err = None
 
@@ -337,7 +272,7 @@ if uploaded_file:
                             if criterios_res and hallazgos_res:
                                 ejecutado_con_ia = True
                         else:
-                            st.error(f"❌ Error de la API de Google: {last_err}")
+                            st.error(f"❌ Error al conectar con la API de Google: {last_err}")
 
                     except Exception as e:
                         st.error(f"❌ Error al configurar la clave de Gemini: {e}")
