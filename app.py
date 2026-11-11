@@ -2,6 +2,8 @@ import io
 import json
 import re
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 import docx
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -214,19 +216,28 @@ if uploaded_file:
                 + raw_text[:180000]
             )
 
-            # --- CONEXIÓN REST PURA SIN RIESGO DE CARACTERES CORROPTOS ---
+            # --- CONEXIÓN HTTP DEFENSIVA CON ADAPTADOR HTTPS MONTAJE DIRECTO ---
             if provider == "Google Gemini (IA Real)":
-                clean_key = re.sub(r'[^a-zA-Z0-9_\-]', '', str(api_key))
+                clean_key = re.sub(r'[^a-zA-Z0-9_\-]', '', str(api_key)).strip()
                 
                 if not clean_key:
                     st.error("❌ No ingresaste la API Key de Gemini en la barra lateral.")
                 else:
+                    # Crear una sesión de Requests e impartir montaje explícito sobre https://
+                    http_session = requests.Session()
+                    adapter = HTTPAdapter(max_retries=Retry(total=2, backoff_factor=1))
+                    http_session.mount("https://", adapter)
+                    http_session.mount("http://", adapter)
+
                     candidate_models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
                     res_text = None
                     last_http_error = ""
 
                     for m_name in candidate_models:
-                        url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){m_name}:generateContent"
+                        # Construir endpoint limpio y aislado
+                        clean_model_name = re.sub(r'[^a-zA-Z0-9.\-]', '', m_name)
+                        endpoint = "[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/)" + clean_model_name + ":generateContent"
+
                         headers = {"Content-Type": "application/json"}
                         payload = {
                             "contents": [{"parts": [{"text": prompt_text}]}],
@@ -234,8 +245,8 @@ if uploaded_file:
                         }
 
                         try:
-                            response = requests.post(
-                                url,
+                            response = http_session.post(
+                                endpoint,
                                 params={"key": clean_key},
                                 headers=headers,
                                 json=payload,
@@ -249,12 +260,12 @@ if uploaded_file:
                                     parts = candidates[0]["content"].get("parts", [])
                                     if parts and "text" in parts[0]:
                                         res_text = parts[0]["text"]
-                                        model_used_name = m_name
+                                        model_used_name = clean_model_name
                                         break
                             else:
-                                last_http_error = f"{m_name} -> HTTP {response.status_code}: {response.text[:200]}"
+                                last_http_error = f"{clean_model_name} -> HTTP {response.status_code}: {response.text[:200]}"
                         except Exception as req_e:
-                            last_http_error = f"Excepción en {m_name}: {req_e}"
+                            last_http_error = f"Excepción en {clean_model_name}: {req_e}"
 
                     if res_text:
                         clean_str = res_text.strip()
