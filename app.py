@@ -47,7 +47,7 @@ st.markdown(
 
 st.markdown('<div class="main-title">⚖️ LexSentencia 2026</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano<br><b>Análisis Párrafo por Párrafo y Subsanación Integral</b></div>',
+    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano<br><b>Análisis Párrafo por Párrafo y Subsanación Puntual de Sentencias Completeras</b></div>',
     unsafe_allow_html=True,
 )
 
@@ -169,10 +169,10 @@ uploaded_file = st.file_uploader("📁 Cargar Sentencia Judicial (PDF o Word)", 
 
 if uploaded_file:
     raw_text = extract_text(uploaded_file)
-    st.success(f"📄 Sentencia cargada: **{uploaded_file.name}** ({len(raw_text):,} caracteres)")
+    st.success(f"📄 Sentencia cargada: **{uploaded_file.name}** ({len(raw_text):,} caracteres en total)")
 
-    if st.button("🚀 Auditar Sentencia (Rúbrica Personalizable + Subsanaciones)", type="primary"):
-        with st.spinner("🔍 Analizando la sentencia y generando subsanaciones para todos los puntos observados..."):
+    if st.button("🚀 Auditar Sentencia (Análisis de Párrafos y Correcciones Directas)", type="primary"):
+        with st.spinner("🔍 Analizando la totalidad del documento (de principio a fin) y localizando los párrafos a corregir..."):
             
             criterios_res = []
             hallazgos_res = []
@@ -183,34 +183,34 @@ if uploaded_file:
 
             prompt_text = (
                 "Actúa como un Auditor Jurídico Experto en Derecho Peruano.\n"
-                "Audita la sentencia adjunta verificando el cumplimiento del derecho peruano:\n"
+                "Se te adjunta el TEXTO COMPLETO de una sentencia judicial peruana. Realiza un análisis riguroso pero equitativo verificando:\n"
                 "- Art. 139 inc. 5 de la Constitución Política del Perú.\n"
                 "- Precedente vinculante STC N° 00728-2008-PHC/TC (Vicios de motivación).\n"
                 "- Normativa peruana aplicable (CPC, CPP, CC o CP según el caso).\n\n"
                 "RÚBRICA DE EVALUACIÓN PERSONALIZADA:\n"
                 + rubrica_str + "\n\n"
-                "INSTRUCCIONES OBLIGATORIAS DE AUDITORÍA:\n"
-                "1. Evalúa cada criterio de la rúbrica asignando un score exacto sin superar max_pts.\n"
-                "2. PARA CADA CRITERIO DONDE ASIGNES UN PUNTAJE MENOR AL MÁXIMO, DEBES GENERAR OBLIGATORIAMENTE AL MENOS UN HALLAZGO EN 'hallazgos_parrafos'.\n"
-                "3. En 'texto_original', cita el párrafo o frase exacta de la sentencia que contiene la deficiencia. Si el documento está incompleto o falta una sección entera (ej. falta valoración probatoria o fallo), especifica exactamente qué parte falta.\n"
-                "4. En 'propuesta_redaccion', redacta la versión corregida y subsanada detallada que el juez debió escribir para que el criterio alcance la nota máxima (100% de cumplimiento).\n"
-                "5. Responde EXCLUSIVAMENTE un objeto JSON válido con esta estructura exacta (sin texto ni marcas adicionales):\n"
+                "REGLAS STRICTAS DE OBSERVACIÓN Y CORRECCIÓN (UBICACIÓN EXACTA Y REEMPLAZO PÁRRAFO POR PÁRRAFO):\n"
+                "1. Lee TODO el documento de principio a fin antes de calificar (no asumas que falta el fallo o la prueba a menos que de verdad no aparezca en el texto).\n"
+                "2. Identifica entre 3 y 6 hallazgos o párrafos específicos DISTINTOS a lo largo de toda la sentencia donde existan vicios de motivación o deficiencias de fundamentación.\n"
+                "3. En 'texto_original', DEBES CITAR EL PÁRRAFO EXACTO Y COMPLETO de la sentencia sin alterarlo, anteponiendo la ubicación o número de considerando donde se encuentra. Ejemplo exacto: '[CONSIDERANDO SÉTIMO, párrafo 2]: Que, con relación a la prueba documental...'\n"
+                "4. En 'propuesta_redaccion', redacta la versión corregida y subsanada de ESE MISMO PÁRRAFO O SECCIÓN ESPECÍFICA, para que el usuario pueda tomar la propuesta como un reemplazo directo de ese fragmento exacto.\n"
+                "5. Responde EXCLUSIVAMENTE un objeto JSON válido con esta estructura exacta (sin texto previo ni marcas ```json):\n"
                 "{\n"
                 '  "criterios_evaluados": [\n'
-                '    {"nombre": "Nombre Criterio", "score": 3.0, "max_pts": 4.0, "nivel": "Observado", "detalle": "Justificación jurídica"}\n'
+                '    {"nombre": "Nombre Criterio", "score": 3.5, "max_pts": 4.0, "nivel": "Conforme", "detalle": "Evaluación objetiva del criterio"}\n'
                 "  ],\n"
                 '  "hallazgos_parrafos": [\n'
                 "    {\n"
                 '      "criterio_afectado": "Nombre Criterio",\n'
-                '      "texto_original": "Extracto textual exacto o descripción de la omisión del párrafo",\n'
+                '      "texto_original": "[UBICACIÓN DEL CONSIDERANDO]: Texto literal e inalterado del párrafo de la sentencia",\n'
                 '      "vicio": "Vicio de motivación según STC 00728-2008-PHC/TC",\n'
-                '      "base_legal": "Artículos o jurisprudencia peruana aplicable",\n'
-                '      "propuesta_redaccion": "Redacción subsanatoria integral para alcanzar el cumplimiento normativo"\n'
+                '      "base_legal": "Artículos o jurisprudencia peruana vulnerada o aplicable",\n'
+                '      "propuesta_redaccion": "Redacción subsanatoria exacta que reemplaza al párrafo observado"\n'
                 "    }\n"
                 "  ]\n"
                 "}\n\n"
                 "TEXTO COMPLETO DE LA SENTENCIA AUDITADA:\n"
-                + raw_text[:25000]
+                + raw_text[:180000]
             )
 
             # --- CONEXIÓN DINÁMICA HTTP REST A GOOGLE GEMINI ---
@@ -227,7 +227,7 @@ if uploaded_file:
                     discovered_models = []
                     for api_ver in ["v1beta", "v1"]:
                         try:
-                            list_url = f"https://generativelanguage.googleapis.com/{api_ver}/models?key={clean_key}"
+                            list_url = f"[https://generativelanguage.googleapis.com/](https://generativelanguage.googleapis.com/){api_ver}/models?key={clean_key}"
                             res = requests.get(list_url, headers=headers, timeout=10)
                             if res.status_code == 200:
                                 models_list = res.json().get("models", [])
@@ -252,7 +252,7 @@ if uploaded_file:
                     last_http_error = ""
 
                     for api_ver, m_full in discovered_models:
-                        url = f"https://generativelanguage.googleapis.com/{api_ver}/{m_full}:generateContent?key={clean_key}"
+                        url = f"[https://generativelanguage.googleapis.com/](https://generativelanguage.googleapis.com/){api_ver}/{m_full}:generateContent?key={clean_key}"
                         
                         payload_json = {
                             "contents": [{"parts": [{"text": prompt_text}]}],
@@ -263,14 +263,14 @@ if uploaded_file:
                         }
                         
                         try:
-                            response = requests.post(url, headers=headers, json=payload_json, timeout=55)
+                            response = requests.post(url, headers=headers, json=payload_json, timeout=60)
                             
                             if response.status_code != 200:
                                 payload_simple = {
                                     "contents": [{"parts": [{"text": prompt_text}]}],
                                     "generationConfig": {"temperature": 0.2}
                                 }
-                                response = requests.post(url, headers=headers, json=payload_simple, timeout=55)
+                                response = requests.post(url, headers=headers, json=payload_simple, timeout=60)
 
                             if response.status_code == 200:
                                 res_json = response.json()
@@ -331,10 +331,10 @@ if uploaded_file:
                 hallazgos_res = [
                     {
                         "criterio_afectado": edited_rubrica[2]["Criterio"] if len(edited_rubrica) > 2 else "Juicio Probatorio",
-                        "texto_original": "CONSIDERANDO CUARTO: Que, la prueba documental presentada por la parte demandada no desvirtúa las pretensiones de la demandante...",
+                        "texto_original": "[CONSIDERANDO SÉTIMO - PÁRRAFO 2]: Que, la prueba documental presentada por la parte demandada no desvirtúa las pretensiones de la demandante...",
                         "vicio": "Motivación Aparente y Defecto de Valoración Probatoria (STC 00728-2008-PHC/TC)",
                         "base_legal": "Art. 197 del Código Procesal Civil Peruano",
-                        "propuesta_redaccion": "CONSIDERANDO CUARTO (REVISIÓN SUBSANATORIA): Respecto a la documental N° 04 presentada por la defensa, este despacho advierte que si bien sostiene la falta de responsabilidad, queda desvirtuada al contrastarse de forma conjunta con la prueba testimonial de fojas 45, toda vez que no justifica la omisión del deber de cuidado conforme al Art. 197 del CPC."
+                        "propuesta_redaccion": "[REEMPLAZO DIRECTO DEL PÁRRAFO SÉTIMO]: Respecto a la documental N° 04 presentada por la defensa, este despacho advierte que si bien sostiene la falta de responsabilidad, queda desvirtuada al contrastarse de forma conjunta con la prueba testimonial de fojas 45, toda vez que no justifica la omisión del deber de cuidado conforme al Art. 197 del CPC."
                     }
                 ]
             else:
@@ -396,8 +396,8 @@ if uploaded_file:
                 st.caption(f"📌 {c['detalle']}")
 
             st.markdown("---")
-            st.subheader("🔍 Auditoría Párrafo por Párrafo (Subsanación Integral de Defectos)")
-            st.info("A continuación se detallan todas las observaciones detectadas con su correspondiente propuesta de redacción subsanatoria para alcanzar el 100% de cumplimiento:")
+            st.subheader("🔍 Auditoría Párrafo por Párrafo (Ubicación Exacta & Subsanación Directa)")
+            st.info("A continuación se citan los párrafos observados a lo largo del expediente (indicando considerando) y su reemplazo exacto recomendado:")
 
             for i, h in enumerate(hallazgos_res, 1):
                 st.markdown(f"#### 📍 Observación N° {i}: {h['criterio_afectado']}")
@@ -416,7 +416,7 @@ if uploaded_file:
                 st.markdown(
                     f"""
                     <div class="fix-box">
-                        <b>✅ PROPUESTA DE REDACCIÓN SUBSANATORIA (CONFORME A DERECHO PERUANO):</b><br>
+                        <b>✅ PROPUESTA DE REDACCIÓN SUBSANATORIA (REEMPLAZO DIRECTO DEL PÁRRAFO):</b><br>
                         <b>"{h['propuesta_redaccion']}"</b>
                     </div>
                     """,
