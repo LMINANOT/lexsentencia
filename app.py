@@ -214,10 +214,9 @@ if uploaded_file:
                 + raw_text[:180000]
             )
 
-            # --- CONEXIÓN REST PURIFICADA A GOOGLE GEMINI ---
+            # --- CONEXIÓN REST PURA SIN RIESGO DE CARACTERES CORROPTOS ---
             if provider == "Google Gemini (IA Real)":
-                clean_key = str(api_key).strip()
-                clean_key = re.sub(r'[^a-zA-Z0-9_\-]', '', clean_key)
+                clean_key = re.sub(r'[^a-zA-Z0-9_\-]', '', str(api_key))
                 
                 if not clean_key:
                     st.error("❌ No ingresaste la API Key de Gemini en la barra lateral.")
@@ -227,30 +226,16 @@ if uploaded_file:
                     last_http_error = ""
 
                     for m_name in candidate_models:
-                        # 1. Crear URL base
-                        raw_url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){m_name}:generateContent"
-                        
-                        # 2. PURIFICACIÓN ASCII: Elimina todo carácter no-ASCII (\xa0, BOM, etc.) que corrompa la URL al pegar en GitHub
-                        clean_url = raw_url.encode('ascii', 'ignore').decode('ascii').strip()
-                        
-                        # 3. Garantizar que empiece textualmente por https://
-                        if not clean_url.startswith("https://"):
-                            clean_url = "https://" + clean_url.replace("https://", "").replace("http://", "")
-
-                        headers = {
-                            "Content-Type": "application/json"
-                        }
-                        
+                        url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){m_name}:generateContent"
+                        headers = {"Content-Type": "application/json"}
                         payload = {
                             "contents": [{"parts": [{"text": prompt_text}]}],
-                            "generationConfig": {
-                                "temperature": 0.2
-                            }
+                            "generationConfig": {"temperature": 0.2}
                         }
 
                         try:
                             response = requests.post(
-                                clean_url,
+                                url,
                                 params={"key": clean_key},
                                 headers=headers,
                                 json=payload,
