@@ -12,17 +12,13 @@ try:
 except ImportError:
     genai = None
 
-try:
-    from openai import OpenAI
-except ImportError:
-    OpenAI = None
-
 st.set_page_config(
     page_title="LexSentencia 2026 - Auditoría Judicial",
     page_icon="⚖️",
     layout="wide",
 )
 
+# Estilos CSS de la interfaz (Estilo Turnitin)
 st.markdown(
     """
 <style>
@@ -55,21 +51,19 @@ st.markdown(
 
 st.markdown('<div class="main-title">⚖️ LexSentencia 2026</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano<br><b>Análisis Párrafo por Párrafo (Estilo Turnitin) y Rúbricas Personalizables</b></div>',
+    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano<br><b>Análisis Párrafo por Párrafo con Google Gemini (Estilo Turnitin)</b></div>',
     unsafe_allow_html=True,
 )
 
 # --- CONFIGURACIÓN DE BARRA LATERAL ---
 st.sidebar.header("⚙️ Motor de IA & API")
-provider = st.sidebar.selectbox("Proveedor de IA", ["Google Gemini", "OpenAI (GPT-4o / GPT-4)", "Modo Demostración Local"])
+provider = st.sidebar.selectbox("Proveedor de IA", ["Google Gemini (IA Real)", "Modo Demostración Local"])
 
-if provider == "Google Gemini":
-    api_key = st.sidebar.text_input("API Key de Google Gemini (Gratis en AI Studio)", type="password")
-elif provider == "OpenAI (GPT-4o / GPT-4)":
-    api_key = st.sidebar.text_input("API Key de OpenAI (sk-...)", type="password")
+if provider == "Google Gemini (IA Real)":
+    api_key = st.sidebar.text_input("API Key de Google Gemini", type="password", value="")
 else:
     api_key = ""
-    st.sidebar.info("💡 El Modo Demostración funciona inmediatamente sin API Key.")
+    st.sidebar.info("💡 El Modo Demostración muestra datos de prueba sin consumir API Key.")
 
 st.sidebar.markdown("---")
 st.sidebar.header("🛠️ Configuración de Rúbrica Dinámica")
@@ -182,67 +176,94 @@ if uploaded_file:
     st.success(f"📄 Documento cargado: **{uploaded_file.name}** ({len(raw_text):,} caracteres)")
 
     if st.button("🚀 Audit Sentencia (Modo Turnitin + Rúbrica Personalizada)", type="primary"):
-        with st.spinner("🔍 Analizando motivación párrafo por párrafo y calculando indicadores con IA..."):
+        with st.spinner("🔍 Conectando con Google Gemini y auditando la sentencia párrafo por párrafo..."):
             
             criterios_res = []
             hallazgos_res = []
             ejecutado_con_ia = False
-            motor_usado = ""
+            model_used_name = ""
 
             rubrica_str = "\n".join([f"- {item['Criterio']}: max {item['Max_Pts']} pts" for item in edited_rubrica])
 
             prompt_text = (
-                "Actúa como Auditor Jurídico de Sentencias Peruanas (Constitución Art 139 inc 5, STC 00728-2008-PHC/TC).\n"
-                "Evalúa la sentencia adjunta utilizando esta RÚBRICA PERSONALIZADA:\n"
+                "Actúa como Auditor Jurídico de Sentencias Peruanas (Art. 139 inc. 5 Constitución, STC 00728-2008-PHC/TC).\n"
+                "Evalúa el texto adjunto conforme a esta RÚBRICA PERSONALIZADA:\n"
                 + rubrica_str + "\n\n"
                 "Instrucciones:\n"
-                "1. Evalúa cada criterio asignando un puntaje (score) sin superar su max_pts.\n"
-                "2. Extrae extractos/párrafos textuales reales de la sentencia que contengan vicios de motivación y propone el texto corregido.\n\n"
-                "Responde EXCLUSIVAMENTE en este formato JSON estricto:\n"
+                "1. Otorga un puntaje a cada criterio sin exceder su max_pts.\n"
+                "2. Extrae extractos reales de la sentencia que contengan vicios de motivación y redacta la versión subsanada.\n\n"
+                "Responde ÚNICAMENTE en JSON con este formato:\n"
                 "{\n"
                 '  "criterios_evaluados": [\n'
                 '    {"nombre": "Nombre del Criterio", "score": 3.0, "max_pts": 4.0, "nivel": "Satisfactorio", "detalle": "Justificación"}\n'
                 "  ],\n"
                 '  "hallazgos_parrafos": [\n'
                 "    {\n"
-                '      "criterio_afectado": "Nombre Criterio",\n'
-                '      "texto_original": "Párrafo o extracto textual exacto hallado en la sentencia",\n'
-                '      "vicio": "Vicio de motivación detectado",\n'
-                '      "base_legal": "Norma o jurisprudencia peruana vulnerada",\n'
-                '      "propuesta_redaccion": "Redacción corregida y subsanada conforme a derecho"\n'
+                '      "criterio_afectado": "Nombre del Criterio",\n'
+                '      "texto_original": "Párrafo o frase exacta observada en la sentencia",\n'
+                '      "vicio": "Vicio de motivación identificado",\n'
+                '      "base_legal": "Norma o jurisprudencia peruana aplicable",\n'
+                '      "propuesta_redaccion": "Propuesta de redacción corregida"\n'
                 "    }\n"
                 "  ]\n"
                 "}\n\n"
-                "TEXTO REAL DE LA SENTENCIA:\n"
+                "TEXTO DE LA SENTENCIA:\n"
                 + raw_text[:14000]
             )
 
-            # --- CONEXIÓN CON GEMINI ---
-            if provider == "Google Gemini":
-                if not api_key.strip():
-                    st.warning("⚠️ No ingresaste API Key. Usando modo demostración local.")
+            # --- PROCESAMIENTO CON GOOGLE GEMINI ---
+            if provider == "Google Gemini (IA Real)":
+                clean_key = api_key.strip()
+                if not clean_key:
+                    st.error("❌ No ingresaste la API Key de Gemini en la barra lateral.")
                 elif genai is None:
-                    st.error("Librería google-generativeai no encontrada.")
+                    st.error("❌ La librería google-generativeai no está instalada correctamente.")
                 else:
                     try:
-                        genai.configure(api_key=api_key)
+                        genai.configure(api_key=clean_key)
                         
-                        # Lista de nombres estandar de Gemini en la API oficial de Google
-                        gemini_models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
-                        res_text = None
+                        # Detección dinámica de modelos activos compatibles con la clave
+                        detected_models = []
+                        try:
+                            for m in genai.list_models():
+                                if 'generateContent' in m.supported_generation_methods:
+                                    detected_models.append(m.name)
+                        except Exception:
+                            pass
 
-                        for m_name in gemini_models:
+                        # Lista priorizada de modelos
+                        candidate_list = detected_models + [
+                            "gemini-1.5-flash",
+                            "models/gemini-1.5-flash",
+                            "gemini-1.5-pro",
+                            "models/gemini-1.5-pro",
+                            "gemini-2.0-flash",
+                            "gemini-pro"
+                        ]
+
+                        res_text = None
+                        last_exception = None
+
+                        for m_name in candidate_list:
+                            if not m_name:
+                                continue
                             try:
-                                model = genai.GenerativeModel(
-                                    m_name,
-                                    generation_config={"response_mime_type": "application/json"}
-                                )
-                                res = model.generate_content(prompt_text)
+                                try:
+                                    model = genai.GenerativeModel(
+                                        m_name,
+                                        generation_config={"response_mime_type": "application/json"}
+                                    )
+                                    res = model.generate_content(prompt_text)
+                                except Exception:
+                                    model = genai.GenerativeModel(m_name)
+                                    res = model.generate_content(prompt_text)
+
                                 if res and res.text:
                                     res_text = res.text
-                                    motor_usado = f"Google Gemini ({m_name})"
+                                    model_used_name = m_name
                                     break
-                            except Exception:
+                            except Exception as ex:
+                                last_exception = ex
                                 continue
 
                         if res_text:
@@ -252,35 +273,19 @@ if uploaded_file:
                             hallazgos_res = data.get("hallazgos_parrafos", [])
                             if criterios_res and hallazgos_res:
                                 ejecutado_con_ia = True
-                    except Exception as e:
-                        st.warning(f"⚠️ Error al conectar con la API de Gemini: {e}")
+                        else:
+                            st.error(f"❌ No se pudo conectar con Gemini: {last_exception}")
 
-            # --- CONEXIÓN CON OPENAI (GPT-4o) ---
-            elif provider == "OpenAI (GPT-4o / GPT-4)":
-                if not api_key.strip():
-                    st.warning("⚠️ No ingresaste API Key de OpenAI.")
-                elif OpenAI is None:
-                    st.error("Librería openai no instalada.")
-                else:
-                    try:
-                        client = OpenAI(api_key=api_key)
-                        response = client.chat.completions.create(
-                            model="gpt-4o",
-                            messages=[{"role": "user", "content": prompt_text}],
-                            response_format={"type": "json_object"}
-                        )
-                        data = json.loads(response.choices[0].message.content)
-                        criterios_res = data.get("criterios_evaluados", [])
-                        hallazgos_res = data.get("hallazgos_parrafos", [])
-                        if criterios_res and hallazgos_res:
-                            ejecutado_con_ia = True
-                            motor_usado = "OpenAI (GPT-4o)"
                     except Exception as e:
-                        st.warning(f"⚠️ Error al conectar con OpenAI: {e}")
+                        st.error(f"❌ Error de autenticación con la API Key: {e}")
 
-            # --- FALLBACK A DEMOSTRACIÓN SI NO HAY CONEXIÓN ---
+            # --- FALLBACK DEMOSTRACIÓN ---
             if not ejecutado_con_ia:
-                st.info("ℹ️ Se activó el Modo Demostración Local de respaldo.")
+                if provider != "Google Gemini (IA Real)":
+                    st.info("ℹ️ Ejecutando auditoría en Modo Demostración Local.")
+                else:
+                    st.warning("⚠️ Se mostraron datos de respaldo debido al fallo de conexión.")
+
                 criterios_res = []
                 for item in edited_rubrica:
                     max_p = item["Max_Pts"]
@@ -290,20 +295,20 @@ if uploaded_file:
                         "score": assigned_p,
                         "max_pts": max_p,
                         "nivel": "Observado" if assigned_p < (max_p * 0.75) else "Satisfactorio",
-                        "detalle": "Presenta fundamentación genérica; requiere desarrollo sustantivo de la prueba."
+                        "detalle": "Argumentación formal de plantilla; requiere valoración individualizada de los medios probatorios."
                     })
                 
                 hallazgos_res = [
                     {
                         "criterio_afectado": edited_rubrica[2]["Criterio"] if len(edited_rubrica) > 2 else "Juicio Probatorio",
-                        "texto_original": "CONSIDERANDO CUARTO: Que, la prueba documental no desvirtúa la pretensión demandada...",
-                        "vicio": "Motivación Aparente / Defecto de Valoración Probatoria",
-                        "base_legal": "Art. 197 del Código Procesal Civil",
-                        "propuesta_redaccion": "CONSIDERANDO CUARTO (CORREGIDO): Respecto a la documental N° 04 de la defensa, este juzgado advierte que queda desvirtuada al contrastarla de forma conjunta con la testimonial de fojas 45, toda vez que no desvirtúa el deber de cuidado según el Art. 197 del CPC."
+                        "texto_original": "CONSIDERANDO CUARTO: Que, la prueba documental presentada por la parte demandada no desvirtúa las pretensiones de la demandante...",
+                        "vicio": "Motivación Aparente y Defecto de Valoración Probatoria (STC 00728-2008-PHC/TC)",
+                        "base_legal": "Art. 197 del Código Procesal Civil Peruano",
+                        "propuesta_redaccion": "CONSIDERANDO CUARTO (REVISIÓN SUBSANATORIA): Respecto a la documental N° 04 presentada por la defensa, este despacho advierte que si bien sostiene la falta de responsabilidad, queda desvirtuada al contrastarse de forma conjunta con la prueba testimonial de fojas 45, toda vez que no justifica la omisión del deber de cuidado conforme al Art. 197 del CPC."
                     }
                 ]
             else:
-                st.success(f"✅ **¡Análisis Real Exitoso!** Procesado en tiempo real con **{motor_usado}**.")
+                st.success(f"✅ **Análisis en Tiempo Real Exitoso** | Procesado con **Google Gemini** (`{model_used_name}`)")
 
             # --- CÁLCULO DE MÉTRICAS ---
             total_score = sum(c["score"] for c in criterios_res)
@@ -362,7 +367,7 @@ if uploaded_file:
 
             st.markdown("---")
             st.subheader("🔍 Auditoría Párrafo por Párrafo (Subrayado & Opciones de Subsanación)")
-            st.info("A continuación se destacan los párrafos con vicios detectados y sus propuestas de subsanación:")
+            st.info("Extractos detectados con vicios de motivación y sus respectivas propuestas de texto subsanado:")
 
             for i, h in enumerate(hallazgos_res, 1):
                 st.markdown(f"#### 📍 Observación N° {i}: {h['criterio_afectado']}")
