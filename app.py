@@ -1,16 +1,12 @@
 import io
 import json
+import requests
 import docx
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import RGBColor
 import pypdf
 import streamlit as st
-
-try:
-    import google.generativeai as genai
-except ImportError:
-    genai = None
 
 st.set_page_config(
     page_title="LexSentencia 2026 - Auditoría Judicial Peruana",
@@ -51,7 +47,7 @@ st.markdown(
 
 st.markdown('<div class="main-title">⚖️ LexSentencia 2026</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano<br><b>Análisis Párrafo por Párrafo (Estilo Turnitin) con Google Gemini</b></div>',
+    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano<br><b>Análisis Párrafo por Párrafo (Estilo Turnitin) con Conexión Directa a Google Gemini</b></div>',
     unsafe_allow_html=True,
 )
 
@@ -176,7 +172,7 @@ if uploaded_file:
     st.success(f"📄 Sentencia cargada: **{uploaded_file.name}** ({len(raw_text):,} caracteres)")
 
     if st.button("🚀 Audit Sentencia (Modo Turnitin + Rúbrica Personalizada)", type="primary"):
-        with st.spinner("🔍 Analizando la motivación de la sentencia con Google Gemini..."):
+        with st.spinner("🔍 Enviando documento directamente a Google Gemini para análisis en tiempo real..."):
             
             criterios_res = []
             hallazgos_res = []
@@ -187,26 +183,26 @@ if uploaded_file:
 
             prompt_text = (
                 "Actúa como un Auditor Jurídico Experto en Derecho Peruano.\n"
-                "Audita la sentencia adjunta verificando el cumplimiento estricto del derecho peruano:\n"
-                "- Art. 139 inc. 5 de la Constitución Política del Perú (Debida motivación de las resoluciones judiciales).\n"
-                "- Precedente vinculante STC N° 00728-2008-PHC/TC (Motivación aparente, insuficiente, incongruente, defectuosa o inexistente).\n"
-                "- Normativa peruana aplicable (Código Procesal Civil, Código Procesal Penal, Código Civil o Código Penal según corresponda).\n\n"
+                "Audita la sentencia adjunta verificando el cumplimiento del derecho peruano:\n"
+                "- Art. 139 inc. 5 de la Constitución Política del Perú.\n"
+                "- Precedente vinculante STC N° 00728-2008-PHC/TC (Vicios de motivación).\n"
+                "- Normativa peruana aplicable (CPC, CPP, CC o CP según el caso).\n\n"
                 "RÚBRICA DE EVALUACIÓN PERSONALIZADA:\n"
                 + rubrica_str + "\n\n"
                 "INSTRUCCIONES:\n"
-                "1. Evalúa cada criterio de la rúbrica asignando un score exacto sin superar el max_pts.\n"
-                "2. Extrae los párrafos o frases exactas de la sentencia que contengan vicios de motivación y redacta una propuesta de texto subsanada conforme a derecho.\n"
-                "3. Responde EXCLUSIVAMENTE un objeto JSON estricto con la siguiente estructura (sin formato de marcado adicional):\n"
+                "1. Evalúa cada criterio de la rúbrica asignando un score exacto sin superar max_pts.\n"
+                "2. Extrae extractos o frases textuales reales de la sentencia cargada que contengan vicios de motivación y redacta la propuesta de texto subsanada.\n"
+                "3. Responde EXCLUSIVAMENTE un JSON válido con esta estructura exacta:\n"
                 "{\n"
                 '  "criterios_evaluados": [\n'
-                '    {"nombre": "Nombre Criterio", "score": 3.0, "max_pts": 4.0, "nivel": "Satisfactorio", "detalle": "Sustento jurídico en norma peruana"}\n'
+                '    {"nombre": "Nombre Criterio", "score": 3.0, "max_pts": 4.0, "nivel": "Satisfactorio", "detalle": "Sustento en norma peruana"}\n'
                 "  ],\n"
                 '  "hallazgos_parrafos": [\n'
                 "    {\n"
                 '      "criterio_afectado": "Nombre Criterio",\n'
-                '      "texto_original": "Extracto textual exacto hallado en la sentencia",\n'
+                '      "texto_original": "Extracto textual exacto hallado en la sentencia auditada",\n'
                 '      "vicio": "Vicio de motivación según STC 00728-2008-PHC/TC",\n'
-                '      "base_legal": "Artículos específicos o jurisprudencia peruana aplicable",\n'
+                '      "base_legal": "Artículos o jurisprudencia peruana aplicable",\n'
                 '      "propuesta_redaccion": "Propuesta de redacción subsanada conforme a derecho peruano"\n'
                 "    }\n"
                 "  ]\n"
@@ -215,74 +211,67 @@ if uploaded_file:
                 + raw_text[:14000]
             )
 
-            # --- PROCESAMIENTO CON GOOGLE GEMINI ---
+            # --- CONEXIÓN DIRECTA POR HTTP REST A GOOGLE GEMINI ---
             if provider == "Google Gemini (IA Real)":
                 clean_key = api_key.strip()
                 if not clean_key:
                     st.error("❌ No ingresaste la API Key de Gemini en la barra lateral.")
-                elif genai is None:
-                    st.error("❌ La librería google-generativeai no está instalada.")
                 else:
-                    try:
-                        genai.configure(api_key=clean_key)
-                        
-                        candidate_models = ["gemini-1.5-flash", "gemini-1.5-pro"]
-                        res_text = None
-                        last_err = None
+                    # Modelos oficiales estándar de Google Gemini
+                    models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
+                    last_http_error = ""
 
-                        for m_name in candidate_models:
-                            try:
-                                model = genai.GenerativeModel(
-                                    m_name,
-                                    generation_config={"response_mime_type": "application/json"}
-                                )
-                                res = model.generate_content(prompt_text)
-                                if res and res.text:
-                                    res_text = res.text
-                                    model_used_name = m_name
-                                    break
-                            except Exception as ex1:
-                                last_err = ex1
+                    for m_name in models_to_try:
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m_name}:generateContent?key={clean_key}"
+                        headers = {"Content-Type": "application/json"}
+                        payload = {
+                            "contents": [{"parts": [{"text": prompt_text}]}],
+                            "generationConfig": {
+                                "response_mime_type": "application/json",
+                                "temperature": 0.2
+                            }
+                        }
+
+                        try:
+                            response = requests.post(url, json=payload, timeout=45)
+                            if response.status_code == 200:
+                                res_json = response.json()
                                 try:
-                                    model = genai.GenerativeModel(m_name)
-                                    res = model.generate_content(prompt_text)
-                                    if res and res.text:
-                                        res_text = res.text
+                                    res_text = res_json['candidates'][0]['content']['parts'][0]['text']
+                                    clean_str = res_text.strip()
+                                    if "```json" in clean_str:
+                                        clean_str = clean_str.split("```json")[1].split("```")[0].strip()
+                                    elif "```" in clean_str:
+                                        clean_str = clean_str.split("```")[1].split("```")[0].strip()
+
+                                    start_idx = clean_str.find("{")
+                                    end_idx = clean_str.rfind("}")
+                                    if start_idx != -1 and end_idx != -1:
+                                        clean_str = clean_str[start_idx:end_idx+1]
+
+                                    data = json.loads(clean_str)
+                                    criterios_res = data.get("criterios_evaluados", [])
+                                    hallazgos_res = data.get("hallazgos_parrafos", [])
+                                    if criterios_res and hallazgos_res:
+                                        ejecutado_con_ia = True
                                         model_used_name = m_name
                                         break
-                                except Exception as ex2:
-                                    last_err = ex2
-                                    continue
+                                except Exception as parse_e:
+                                    last_http_error = f"Error al parsear JSON: {parse_e}"
+                            else:
+                                last_http_error = f"Código {response.status_code}: {response.text}"
+                        except Exception as req_e:
+                            last_http_error = f"Excepción HTTP: {req_e}"
 
-                        if res_text:
-                            clean_str = res_text.strip()
-                            if "```json" in clean_str:
-                                clean_str = clean_str.split("```json")[1].split("```")[0].strip()
-                            elif "```" in clean_str:
-                                clean_str = clean_str.split("```")[1].split("```")[0].strip()
-                            
-                            start_idx = clean_str.find("{")
-                            end_idx = clean_str.rfind("}")
-                            if start_idx != -1 and end_idx != -1:
-                                clean_str = clean_str[start_idx:end_idx+1]
-
-                            data = json.loads(clean_str)
-                            criterios_res = data.get("criterios_evaluados", [])
-                            hallazgos_res = data.get("hallazgos_parrafos", [])
-                            if criterios_res and hallazgos_res:
-                                ejecutado_con_ia = True
-                        else:
-                            st.error(f"❌ Error al conectar con la API de Google: {last_err}")
-
-                    except Exception as e:
-                        st.error(f"❌ Error al configurar la clave de Gemini: {e}")
+                    if not ejecutado_con_ia:
+                        st.error(f"❌ Fallo de conexión directa con la API de Google: {last_http_error}")
 
             # --- MODO DEMOSTRACIÓN LOCAL ---
             if not ejecutado_con_ia:
                 if provider != "Google Gemini (IA Real)":
                     st.info("ℹ️ Ejecutando auditoría en Modo Demostración Local.")
                 else:
-                    st.warning("⚠️ Se mostraron datos de respaldo debido a un problema de conexión.")
+                    st.warning("⚠️ Se activaron datos de prueba debido a un problema con la clave o conexión.")
 
                 criterios_res = []
                 for item in edited_rubrica:
