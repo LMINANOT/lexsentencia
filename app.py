@@ -47,7 +47,7 @@ st.markdown(
 
 st.markdown('<div class="main-title">⚖️ LexSentencia 2026</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano<br><b>Análisis Párrafo por Párrafo y Subsanación Puntual de Sentencias Completeras</b></div>',
+    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano<br><b>Análisis Párrafo por Párrafo y Subsanación Puntual de Sentencias Completas</b></div>',
     unsafe_allow_html=True,
 )
 
@@ -172,7 +172,7 @@ if uploaded_file:
     st.success(f"📄 Sentencia cargada: **{uploaded_file.name}** ({len(raw_text):,} caracteres en total)")
 
     if st.button("🚀 Auditar Sentencia (Análisis de Párrafos y Correcciones Directas)", type="primary"):
-        with st.spinner("🔍 Analizando la totalidad del documento (de principio a fin) y localizando los párrafos a corregir..."):
+        with st.spinner("🔍 Analizando la totalidad del documento y estructurando las subsanaciones exactas..."):
             
             criterios_res = []
             hallazgos_res = []
@@ -215,62 +215,43 @@ if uploaded_file:
 
             # --- CONEXIÓN DINÁMICA HTTP REST A GOOGLE GEMINI ---
             if provider == "Google Gemini (IA Real)":
-                clean_key = api_key.strip()
+                clean_key = "".join(api_key.split())  # Limpieza total de caracteres invisibles o saltos de línea
                 if not clean_key:
                     st.error("❌ No ingresaste la API Key de Gemini en la barra lateral.")
                 else:
-                    headers = {
-                        "Content-Type": "application/json",
-                        "x-goog-api-key": clean_key
-                    }
-                    
-                    discovered_models = []
-                    for api_ver in ["v1beta", "v1"]:
-                        try:
-                            list_url = f"[https://generativelanguage.googleapis.com/](https://generativelanguage.googleapis.com/){api_ver}/models?key={clean_key}"
-                            res = requests.get(list_url, headers=headers, timeout=10)
-                            if res.status_code == 200:
-                                models_list = res.json().get("models", [])
-                                for m in models_list:
-                                    methods = m.get("supportedGenerationMethods", [])
-                                    if "generateContent" in methods:
-                                        m_name = m.get("name", "")
-                                        if m_name and (api_ver, m_name) not in discovered_models:
-                                            discovered_models.append((api_ver, m_name))
-                        except Exception:
-                            pass
-
-                    if not discovered_models:
-                        discovered_models = [
-                            ("v1beta", "models/gemini-1.5-flash"),
-                            ("v1beta", "models/gemini-1.5-pro"),
-                            ("v1", "models/gemini-1.5-flash"),
-                            ("v1", "models/gemini-1.5-pro")
-                        ]
+                    models_to_try = [
+                        "gemini-1.5-flash",
+                        "gemini-1.5-pro",
+                        "gemini-2.0-flash"
+                    ]
 
                     res_text = None
                     last_http_error = ""
 
-                    for api_ver, m_full in discovered_models:
-                        url = f"[https://generativelanguage.googleapis.com/](https://generativelanguage.googleapis.com/){api_ver}/{m_full}:generateContent?key={clean_key}"
-                        
+                    for m_name in models_to_try:
+                        url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){m_name}:generateContent"
+                        headers = {
+                            "Content-Type": "application/json",
+                            "x-goog-api-key": clean_key
+                        }
+                        params = {
+                            "key": clean_key
+                        }
                         payload_json = {
                             "contents": [{"parts": [{"text": prompt_text}]}],
                             "generationConfig": {
-                                "response_mime_type": "application/json",
                                 "temperature": 0.2
                             }
                         }
                         
                         try:
-                            response = requests.post(url, headers=headers, json=payload_json, timeout=60)
-                            
-                            if response.status_code != 200:
-                                payload_simple = {
-                                    "contents": [{"parts": [{"text": prompt_text}]}],
-                                    "generationConfig": {"temperature": 0.2}
-                                }
-                                response = requests.post(url, headers=headers, json=payload_simple, timeout=60)
+                            response = requests.post(
+                                url,
+                                headers=headers,
+                                params=params,
+                                json=payload_json,
+                                timeout=60
+                            )
 
                             if response.status_code == 200:
                                 res_json = response.json()
@@ -279,12 +260,12 @@ if uploaded_file:
                                     parts = candidates[0]["content"].get("parts", [])
                                     if parts and "text" in parts[0]:
                                         res_text = parts[0]["text"]
-                                        model_used_name = f"{m_full} ({api_ver})"
+                                        model_used_name = m_name
                                         break
                             else:
-                                last_http_error = f"{m_full} [{api_ver}] -> Estado HTTP {response.status_code}: {response.text}"
+                                last_http_error = f"{m_name} -> HTTP {response.status_code}: {response.text[:250]}"
                         except Exception as req_e:
-                            last_http_error = f"Excepción en {m_full}: {req_e}"
+                            last_http_error = f"Excepción en {m_name}: {req_e}"
 
                     if res_text:
                         clean_str = res_text.strip()
