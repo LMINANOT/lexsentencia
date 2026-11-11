@@ -110,3 +110,27 @@ if uploaded_file:
             st.subheader("💡 Recomendaciones Institucionales")
             for r in eval_result["recomendaciones"]:
                 st.info(f"👉 {r}")
+
+            # --- BOTÓN DE DESCARGA DE INFORME ---
+            st.markdown("---")
+            
+            # Construcción del informe en formato texto
+            reporte_txt = f"LEXSENTENCIA 2026 - INFORME DE EVALUACIÓN\n"
+            reporte_txt += f"Documento analizado: {uploaded_file.name}\n"
+            reporte_txt += f"Puntaje total: {total_score} / 20\n\n"
+            reporte_txt += "EVALUACIÓN POR CRITERIO:\n"
+            for c in eval_result["criterios"]:
+                reporte_txt += f"- {c['nombre']}: {c['puntaje']}/4 pts ({c['nivel']}) -> {c['det']}\n"
+            reporte_txt += "\nVICIOS DE MOTIVACIÓN:\n"
+            for v in eval_result["vicios"]:
+                reporte_txt += f"- {v}\n"
+            reporte_txt += "\nRECOMENDACIONES:\n"
+            for r in eval_result["recomendaciones"]:
+                reporte_txt += f"- {r}\n"
+
+            st.download_button(
+                label="📥 Descargar Informe Completo (.txt)",
+                data=reporte_txt,
+                file_name=f"Informe_Evaluacion_{uploaded_file.name}.txt",
+                mime="text/plain"
+            )
