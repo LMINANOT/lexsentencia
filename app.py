@@ -133,7 +133,7 @@ def create_word_report(filename, score_total, max_score, pct_cumplimiento, pct_r
         p = doc.add_paragraph()
         p.add_run(f"• {c['nombre']}: ").bold = True
         p.add_run(f"{c['score']} / {c['max_pts']} pts ({c['pct']:.0f}%) — Estado: {c['nivel']}\n")
-        p.add_run(f"  Detalle: {c['detalle']}")
+        p.add_run(f"  Detalle: {c.get('detalle', 'Sin observaciones adicionales.')}")
 
     doc.add_paragraph()
 
