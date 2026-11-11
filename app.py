@@ -2,8 +2,6 @@ import io
 import json
 import re
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util import Retry
 import docx
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -216,38 +214,33 @@ if uploaded_file:
                 + raw_text[:180000]
             )
 
-            # --- CONEXIÓN HTTP DEFENSIVA CON ADAPTADOR HTTPS MONTAJE DIRECTO ---
             if provider == "Google Gemini (IA Real)":
                 clean_key = re.sub(r'[^a-zA-Z0-9_\-]', '', str(api_key)).strip()
                 
                 if not clean_key:
                     st.error("❌ No ingresaste la API Key de Gemini en la barra lateral.")
                 else:
-                    # Crear una sesión de Requests e impartir montaje explícito sobre https://
-                    http_session = requests.Session()
-                    adapter = HTTPAdapter(max_retries=Retry(total=2, backoff_factor=1))
-                    http_session.mount("https://", adapter)
-                    http_session.mount("http://", adapter)
-
                     candidate_models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
                     res_text = None
                     last_http_error = ""
 
                     for m_name in candidate_models:
-                        # Construir endpoint limpio y aislado
-                        clean_model_name = re.sub(r'[^a-zA-Z0-9.\-]', '', m_name)
-                        endpoint = "[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/)" + clean_model_name + ":generateContent"
-
-                        headers = {"Content-Type": "application/json"}
+                        # URL plana sin marcas de Markdown ni corchetes
+                        endpoint = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){m_name}:generateContent"
+                        
+                        headers = {
+                            "Content-Type": "application/json",
+                            "x-goog-api-key": clean_key
+                        }
+                        
                         payload = {
                             "contents": [{"parts": [{"text": prompt_text}]}],
                             "generationConfig": {"temperature": 0.2}
                         }
 
                         try:
-                            response = http_session.post(
+                            response = requests.post(
                                 endpoint,
-                                params={"key": clean_key},
                                 headers=headers,
                                 json=payload,
                                 timeout=60
@@ -260,19 +253,16 @@ if uploaded_file:
                                     parts = candidates[0]["content"].get("parts", [])
                                     if parts and "text" in parts[0]:
                                         res_text = parts[0]["text"]
-                                        model_used_name = clean_model_name
+                                        model_used_name = m_name
                                         break
                             else:
-                                last_http_error = f"{clean_model_name} -> HTTP {response.status_code}: {response.text[:200]}"
+                                last_http_error = f"{m_name} -> HTTP {response.status_code}: {response.text[:200]}"
                         except Exception as req_e:
-                            last_http_error = f"Excepción en {clean_model_name}: {req_e}"
+                            last_http_error = f"Excepción en {m_name}: {req_e}"
 
                     if res_text:
                         clean_str = res_text.strip()
-                        if "```json" in clean_str:
-                            clean_str = clean_str.split("```json")[1].split("```")[0].strip()
-                        elif "```" in clean_str:
-                            clean_str = clean_str.split("```")[1].split("```")[0].strip()
+                        clean_str = re.sub(r"^```(?:json)?\s*|\s*```$", "", clean_str)
 
                         start_idx = clean_str.find("{")
                         end_idx = clean_str.rfind("}")
@@ -285,17 +275,16 @@ if uploaded_file:
                             hallazgos_res = data.get("hallazgos_parrafos", [])
                             if criterios_res and hallazgos_res:
                                 ejecutado_con_ia = True
+                            else:
+                                st.error("❌ La IA respondió pero no devolvió los criterios de evaluación.")
                         except Exception as parse_e:
-                            st.error(f"❌ La IA respondió pero no se pudo procesar la estructura JSON: {parse_e}")
+                            st.error(f"❌ Error al procesar el JSON de Gemini: {parse_e}")
                     else:
                         st.error(f"❌ Fallo al comunicar con Google API: {last_http_error}")
 
             # --- MODO DEMOSTRACIÓN LOCAL ---
-            if not ejecutado_con_ia:
-                if provider != "Google Gemini (IA Real)":
-                    st.info("ℹ️ Ejecutando auditoría en Modo Demostración Local.")
-                else:
-                    st.warning("⚠️ Se activaron datos de prueba debido a un problema con la clave o conexión.")
+            if not ejecutado_con_ia and provider == "Modo Demostración Local":
+                st.info("ℹ️ Ejecutando auditoría en Modo Demostración Local.")
 
                 criterios_res = []
                 for item in edited_rubrica:
@@ -318,108 +307,109 @@ if uploaded_file:
                         "propuesta_redaccion": "[REEMPLAZO DIRECTO DEL PÁRRAFO SÉTIMO]: Respecto a la documental N° 04 presentada por la defensa, este despacho advierte que si bien sostiene la falta de responsabilidad, queda desvirtuada al contrastarse de forma conjunta con la prueba testimonial de fojas 45, toda vez que no justifica la omisión del deber de cuidado conforme al Art. 197 del CPC."
                     }
                 ]
-            else:
+            elif ejecutado_con_ia:
                 st.success(f"✅ **¡Auditoría Real Exitosa!** Sentencia procesada en tiempo real con **Google Gemini** (`{model_used_name}`)")
 
-            # --- CÁLCULO DE MÉTRICAS ---
-            total_score = sum(c["score"] for c in criterios_res)
-            for c in criterios_res:
-                c["pct"] = (c["score"] / c["max_pts"]) * 100 if c["max_pts"] > 0 else 0
+            # --- RENDERIZADO DE RESULTADOS ---
+            if ejecutado_con_ia or provider == "Modo Demostración Local":
+                total_score = sum(c["score"] for c in criterios_res)
+                for c in criterios_res:
+                    c["pct"] = (c["score"] / c["max_pts"]) * 100 if c["max_pts"] > 0 else 0
 
-            pct_cumplimiento = (total_score / max_score_posible) * 100 if max_score_posible > 0 else 0
-            pct_riesgo = round(100.0 - pct_cumplimiento, 1)
+                pct_cumplimiento = (total_score / max_score_posible) * 100 if max_score_posible > 0 else 0
+                pct_riesgo = round(100.0 - pct_cumplimiento, 1)
 
-            st.markdown("---")
-            st.subheader("📊 Métrica Global de Auditoría Judicial")
-
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.markdown(
-                    f"""
-                <div class="metric-box">
-                    <small>CUMPLIMIENTO NORMATIVO</small>
-                    <div class="metric-value">{pct_cumplimiento:.1f}%</div>
-                    <small>Score: <b>{total_score:.1f} / {max_score_posible:.1f} pts</b></small>
-                </div>
-                """,
-                    unsafe_allow_html=True,
-                )
-
-            with col2:
-                st.markdown(
-                    f"""
-                <div class="metric-box">
-                    <small>RIESGO DE NULIDAD / DEFECTOS</small>
-                    <div class="metric-risk">{pct_riesgo:.1f}%</div>
-                    <small>Párrafos críticos: <b>{len(hallazgos_res)}</b></small>
-                </div>
-                """,
-                    unsafe_allow_html=True,
-                )
-
-            with col3:
-                nivel_txt = "Sobresaliente / Conforme" if pct_cumplimiento >= 85 else ("Observado / Subsanable" if pct_cumplimiento >= 60 else "Alto Riesgo de Nulidad")
-                st.markdown(
-                    f"""
-                <div class="metric-box">
-                    <small>ESTADO DE LA SENTENCIA</small>
-                    <div style="font-size: 1.3rem; font-weight:800; color:#1E3A8A; margin-top:15px;">{nivel_txt}</div>
-                </div>
-                """,
-                    unsafe_allow_html=True,
-                )
-
-            st.markdown("---")
-            st.subheader("📋 Calificación por Criterios (Rúbrica Dinámica Configurada)")
-            for c in criterios_res:
-                st.write(f"**{c['nombre']}** — `{c['score']} / {c['max_pts']} pts` ({c['pct']:.0f}%)")
-                st.progress(min(max(c['pct'] / 100.0, 0.0), 1.0))
-                st.caption(f"📌 {c['detalle']}")
-
-            st.markdown("---")
-            st.subheader("🔍 Auditoría Párrafo por Párrafo (Subsanación Integral de Defectos)")
-            st.info("Extractos detectados con vicios de motivación y sus respectivas propuestas de texto subsanado conforme a las leyes peruanas:")
-
-            for i, h in enumerate(hallazgos_res, 1):
-                st.markdown(f"#### 📍 Observación N° {i}: {h['criterio_afectado']}")
-                st.markdown(f"<span class='legal-badge'>Vicio: {h['vicio']}</span> | **Base Legal Peruana:** {h['base_legal']}", unsafe_allow_html=True)
-                
-                st.markdown(
-                    f"""
-                    <div class="obs-box">
-                        <b>⚠️ PÁRRAFO ORIGINAL OBSERVADO EN LA SENTENCIA:</b><br>
-                        <i>"{h['texto_original']}"</i>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                
-                st.markdown(
-                    f"""
-                    <div class="fix-box">
-                        <b>✅ PROPUESTA DE REDACCIÓN SUBSANATORIA (CONFORME A DERECHO PERUANO):</b><br>
-                        <b>"{h['propuesta_redaccion']}"</b>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
                 st.markdown("---")
+                st.subheader("📊 Métrica Global de Auditoría Judicial")
 
-            # --- BOTÓN DE DESCARGA EN WORD ---
-            word_file = create_word_report(
-                uploaded_file.name,
-                total_score,
-                max_score_posible,
-                pct_cumplimiento,
-                pct_riesgo,
-                criterios_res,
-                hallazgos_res,
-            )
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.markdown(
+                        f"""
+                    <div class="metric-box">
+                        <small>CUMPLIMIENTO NORMATIVO</small>
+                        <div class="metric-value">{pct_cumplimiento:.1f}%</div>
+                        <small>Score: <b>{total_score:.1f} / {max_score_posible:.1f} pts</b></small>
+                    </div>
+                    """,
+                        unsafe_allow_html=True,
+                    )
 
-            st.download_button(
-                label="📄 Descargar Informe Oficial en Word (.docx)",
-                data=word_file,
-                file_name=f"Informe_Auditoria_LexSentencia_{uploaded_file.name}.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                type="primary",
-            )
+                with col2:
+                    st.markdown(
+                        f"""
+                    <div class="metric-box">
+                        <small>RIESGO DE NULIDAD / DEFECTOS</small>
+                        <div class="metric-risk">{pct_riesgo:.1f}%</div>
+                        <small>Párrafos críticos: <b>{len(hallazgos_res)}</b></small>
+                    </div>
+                    """,
+                        unsafe_allow_html=True,
+                    )
+
+                with col3:
+                    nivel_txt = "Sobresaliente / Conforme" if pct_cumplimiento >= 85 else ("Observado / Subsanable" if pct_cumplimiento >= 60 else "Alto Riesgo de Nulidad")
+                    st.markdown(
+                        f"""
+                    <div class="metric-box">
+                        <small>ESTADO DE LA SENTENCIA</small>
+                        <div style="font-size: 1.3rem; font-weight:800; color:#1E3A8A; margin-top:15px;">{nivel_txt}</div>
+                    </div>
+                    """,
+                        unsafe_allow_html=True,
+                    )
+
+                st.markdown("---")
+                st.subheader("📋 Calificación por Criterios (Rúbrica Dinámica Configurada)")
+                for c in criterios_res:
+                    st.write(f"**{c['nombre']}** — `{c['score']} / {c['max_pts']} pts` ({c['pct']:.0f}%)")
+                    st.progress(min(max(c['pct'] / 100.0, 0.0), 1.0))
+                    st.caption(f"📌 {c['detalle']}")
+
+                st.markdown("---")
+                st.subheader("🔍 Auditoría Párrafo por Párrafo (Subsanación Integral de Defectos)")
+                st.info("Extractos detectados con vicios de motivación y sus respectivas propuestas de texto subsanado conforme a las leyes peruanas:")
+
+                for i, h in enumerate(hallazgos_res, 1):
+                    st.markdown(f"#### 📍 Observación N° {i}: {h['criterio_afectado']}")
+                    st.markdown(f"<span class='legal-badge'>Vicio: {h['vicio']}</span> | **Base Legal Peruana:** {h['base_legal']}", unsafe_allow_html=True)
+                    
+                    st.markdown(
+                        f"""
+                        <div class="obs-box">
+                            <b>⚠️ PÁRRAFO ORIGINAL OBSERVADO EN LA SENTENCIA:</b><br>
+                            <i>"{h['texto_original']}"</i>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    
+                    st.markdown(
+                        f"""
+                        <div class="fix-box">
+                            <b>✅ PROPUESTA DE REDACCIÓN SUBSANATORIA (CONFORME A DERECHO PERUANO):</b><br>
+                            <b>"{h['propuesta_redaccion']}"</b>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown("---")
+
+                # --- BOTÓN DE DESCARGA EN WORD ---
+                word_file = create_word_report(
+                    uploaded_file.name,
+                    total_score,
+                    max_score_posible,
+                    pct_cumplimiento,
+                    pct_riesgo,
+                    criterios_res,
+                    hallazgos_res,
+                )
+
+                st.download_button(
+                    label="📄 Descargar Informe Oficial en Word (.docx)",
+                    data=word_file,
+                    file_name=f"Informe_Auditoria_LexSentencia_{uploaded_file.name}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    type="primary",
+                )
