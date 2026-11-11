@@ -1,6 +1,5 @@
 import io
 import json
-import re
 import requests
 import docx
 from docx import Document
@@ -48,7 +47,7 @@ st.markdown(
 
 st.markdown('<div class="main-title">⚖️ LexSentencia 2026</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano<br><b>Análisis Párrafo por Párrafo y Subsanación Puntual de Sentencias Completas</b></div>',
+    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano<br><b>Análisis Párrafo por Párrafo y Subsanación Integral</b></div>',
     unsafe_allow_html=True,
 )
 
@@ -170,10 +169,10 @@ uploaded_file = st.file_uploader("📁 Cargar Sentencia Judicial (PDF o Word)", 
 
 if uploaded_file:
     raw_text = extract_text(uploaded_file)
-    st.success(f"📄 Sentencia cargada: **{uploaded_file.name}** ({len(raw_text):,} caracteres en total)")
+    st.success(f"📄 Sentencia cargada: **{uploaded_file.name}** ({len(raw_text):,} caracteres)")
 
-    if st.button("🚀 Auditar Sentencia (Análisis de Párrafos y Correcciones Directas)", type="primary"):
-        with st.spinner("🔍 Conectando con Google Gemini para auditar la sentencia completa..."):
+    if st.button("🚀 Auditar Sentencia (Rúbrica Personalizable + Subsanaciones)", type="primary"):
+        with st.spinner("🔍 Analizando la sentencia y generando subsanaciones para todos los puntos observados..."):
             
             criterios_res = []
             hallazgos_res = []
@@ -184,69 +183,94 @@ if uploaded_file:
 
             prompt_text = (
                 "Actúa como un Auditor Jurídico Experto en Derecho Peruano.\n"
-                "Se te adjunta el TEXTO COMPLETO de una sentencia judicial peruana. Realiza un análisis riguroso pero equitativo verificando:\n"
+                "Audita la sentencia adjunta verificando el cumplimiento del derecho peruano:\n"
                 "- Art. 139 inc. 5 de la Constitución Política del Perú.\n"
                 "- Precedente vinculante STC N° 00728-2008-PHC/TC (Vicios de motivación).\n"
                 "- Normativa peruana aplicable (CPC, CPP, CC o CP según el caso).\n\n"
                 "RÚBRICA DE EVALUACIÓN PERSONALIZADA:\n"
                 + rubrica_str + "\n\n"
-                "INSTRUCCIONES OBLIGATORIAS DE UBICACIÓN Y SUBSANACIÓN PÁRRAFO POR PÁRRAFO:\n"
-                "1. Lee TODO el documento de principio a fin antes de evaluar (no asumas que falta el fallo o la prueba a menos que verdaderamente esté ausente en el texto).\n"
-                "2. Identifica entre 3 y 6 hallazgos o párrafos específicos DISTINTOS a lo largo de toda la sentencia donde existan vicios de motivación o deficiencias de fundamentación.\n"
-                "3. En 'texto_original', DEBES CITAR EL PÁRRAFO EXACTO Y LITERAL de la sentencia sin alterarlo, anteponiendo la ubicación o número de considerando donde se encuentra. Ejemplo: '[CONSIDERANDO SÉTIMO, PÁRRAFO 2]: Que, con relación a la prueba documental...'\n"
-                "4. En 'propuesta_redaccion', redacta la versión corregida y subsanada de ESE MISMO PÁRRAFO O SECCIÓN ESPECÍFICA, de modo que el usuario pueda tomar la propuesta como un reemplazo directo de ese fragmento exacto.\n"
-                "5. Responde EXCLUSIVAMENTE un objeto JSON válido con esta estructura exacta (sin texto previo ni marcas ```json):\n"
+                "INSTRUCCIONES OBLIGATORIAS DE AUDITORÍA:\n"
+                "1. Evalúa cada criterio de la rúbrica asignando un score exacto sin superar max_pts.\n"
+                "2. PARA CADA CRITERIO DONDE ASIGNES UN PUNTAJE MENOR AL MÁXIMO, DEBES GENERAR OBLIGATORIAMENTE AL MENOS UN HALLAZGO EN 'hallazgos_parrafos'.\n"
+                "3. En 'texto_original', cita el párrafo o frase exacta de la sentencia que contiene la deficiencia. Si el documento está incompleto o falta una sección entera (ej. falta valoración probatoria o fallo), especifica exactamente qué parte falta.\n"
+                "4. En 'propuesta_redaccion', redacta la versión corregida y subsanada detallada que el juez debió escribir para que el criterio alcance la nota máxima (100% de cumplimiento).\n"
+                "5. Responde EXCLUSIVAMENTE un objeto JSON válido con esta estructura exacta (sin texto ni marcas adicionales):\n"
                 "{\n"
                 '  "criterios_evaluados": [\n'
-                '    {"nombre": "Nombre Criterio", "score": 3.5, "max_pts": 4.0, "nivel": "Conforme", "detalle": "Evaluación objetiva del criterio"}\n'
+                '    {"nombre": "Nombre Criterio", "score": 3.0, "max_pts": 4.0, "nivel": "Observado", "detalle": "Justificación jurídica"}\n'
                 "  ],\n"
                 '  "hallazgos_parrafos": [\n'
                 "    {\n"
                 '      "criterio_afectado": "Nombre Criterio",\n'
-                '      "texto_original": "[UBICACIÓN EXACTA DEL CONSIDERANDO]: Texto literal e inalterado del párrafo de la sentencia",\n'
+                '      "texto_original": "Extracto textual exacto o descripción de la omisión del párrafo",\n'
                 '      "vicio": "Vicio de motivación según STC 00728-2008-PHC/TC",\n'
                 '      "base_legal": "Artículos o jurisprudencia peruana aplicable",\n'
-                '      "propuesta_redaccion": "Redacción subsanatoria exacta que reemplaza directamente al párrafo observado"\n'
+                '      "propuesta_redaccion": "Redacción subsanatoria integral para alcanzar el cumplimiento normativo"\n'
                 "    }\n"
                 "  ]\n"
                 "}\n\n"
-                "TEXTO COMPLETO DE LA SENTENCIA A AUDITAR:\n"
-                + raw_text[:180000]
+                "TEXTO COMPLETO DE LA SENTENCIA AUDITADA:\n"
+                + raw_text[:25000]
             )
 
+            # --- CONEXIÓN DINÁMICA HTTP REST A GOOGLE GEMINI ---
             if provider == "Google Gemini (IA Real)":
-                clean_key = str(api_key).strip()
-                clean_key = re.sub(r'[^a-zA-Z0-9_\-]', '', clean_key)
-                
+                clean_key = api_key.strip()
                 if not clean_key:
                     st.error("❌ No ingresaste la API Key de Gemini en la barra lateral.")
                 else:
-                    # SESIÓN SIN RASTREO DE PROXIES DEL ENTORNO DE STREAMLIT
-                    session = requests.Session()
-                    session.trust_env = False  # Bypasses Streamlit Cloud's internal proxy routing
+                    headers = {
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": clean_key
+                    }
                     
-                    candidate_models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+                    discovered_models = []
+                    for api_ver in ["v1beta", "v1"]:
+                        try:
+                            list_url = f"https://generativelanguage.googleapis.com/{api_ver}/models?key={clean_key}"
+                            res = requests.get(list_url, headers=headers, timeout=10)
+                            if res.status_code == 200:
+                                models_list = res.json().get("models", [])
+                                for m in models_list:
+                                    methods = m.get("supportedGenerationMethods", [])
+                                    if "generateContent" in methods:
+                                        m_name = m.get("name", "")
+                                        if m_name and (api_ver, m_name) not in discovered_models:
+                                            discovered_models.append((api_ver, m_name))
+                        except Exception:
+                            pass
+
+                    if not discovered_models:
+                        discovered_models = [
+                            ("v1beta", "models/gemini-1.5-flash"),
+                            ("v1beta", "models/gemini-1.5-pro"),
+                            ("v1", "models/gemini-1.5-flash"),
+                            ("v1", "models/gemini-1.5-pro")
+                        ]
+
                     res_text = None
                     last_http_error = ""
 
-                    for m_name in candidate_models:
-                        endpoint = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){m_name}:generateContent"
-                        headers = {
-                            "Content-Type": "application/json",
-                            "x-goog-api-key": clean_key
-                        }
-                        payload = {
+                    for api_ver, m_full in discovered_models:
+                        url = f"https://generativelanguage.googleapis.com/{api_ver}/{m_full}:generateContent?key={clean_key}"
+                        
+                        payload_json = {
                             "contents": [{"parts": [{"text": prompt_text}]}],
-                            "generationConfig": {"temperature": 0.2}
+                            "generationConfig": {
+                                "response_mime_type": "application/json",
+                                "temperature": 0.2
+                            }
                         }
-
+                        
                         try:
-                            response = session.post(
-                                endpoint,
-                                headers=headers,
-                                json=payload,
-                                timeout=60
-                            )
+                            response = requests.post(url, headers=headers, json=payload_json, timeout=55)
+                            
+                            if response.status_code != 200:
+                                payload_simple = {
+                                    "contents": [{"parts": [{"text": prompt_text}]}],
+                                    "generationConfig": {"temperature": 0.2}
+                                }
+                                response = requests.post(url, headers=headers, json=payload_simple, timeout=55)
 
                             if response.status_code == 200:
                                 res_json = response.json()
@@ -255,16 +279,19 @@ if uploaded_file:
                                     parts = candidates[0]["content"].get("parts", [])
                                     if parts and "text" in parts[0]:
                                         res_text = parts[0]["text"]
-                                        model_used_name = m_name
+                                        model_used_name = f"{m_full} ({api_ver})"
                                         break
                             else:
-                                last_http_error = f"{m_name} -> HTTP {response.status_code}: {response.text[:200]}"
+                                last_http_error = f"{m_full} [{api_ver}] -> Estado HTTP {response.status_code}: {response.text}"
                         except Exception as req_e:
-                            last_http_error = f"Excepción en {m_name}: {req_e}"
+                            last_http_error = f"Excepción en {m_full}: {req_e}"
 
                     if res_text:
                         clean_str = res_text.strip()
-                        clean_str = re.sub(r"^```(?:json)?\s*|\s*```$", "", clean_str)
+                        if "```json" in clean_str:
+                            clean_str = clean_str.split("```json")[1].split("```")[0].strip()
+                        elif "```" in clean_str:
+                            clean_str = clean_str.split("```")[1].split("```")[0].strip()
 
                         start_idx = clean_str.find("{")
                         end_idx = clean_str.rfind("}")
@@ -277,16 +304,17 @@ if uploaded_file:
                             hallazgos_res = data.get("hallazgos_parrafos", [])
                             if criterios_res and hallazgos_res:
                                 ejecutado_con_ia = True
-                            else:
-                                st.error("❌ La IA respondió pero no devolvió los criterios de evaluación.")
                         except Exception as parse_e:
-                            st.error(f"❌ Error al procesar el JSON de Gemini: {parse_e}")
+                            st.error(f"❌ La IA respondió pero ocurrió un fallo al interpretar el JSON: {parse_e}")
                     else:
                         st.error(f"❌ Fallo al comunicar con Google API: {last_http_error}")
 
             # --- MODO DEMOSTRACIÓN LOCAL ---
-            if not ejecutado_con_ia and provider == "Modo Demostración Local":
-                st.info("ℹ️ Ejecutando auditoría en Modo Demostración Local.")
+            if not ejecutado_con_ia:
+                if provider != "Google Gemini (IA Real)":
+                    st.info("ℹ️ Ejecutando auditoría en Modo Demostración Local.")
+                else:
+                    st.warning("⚠️ Se activaron datos de prueba debido a un problema con la clave o conexión.")
 
                 criterios_res = []
                 for item in edited_rubrica:
@@ -303,115 +331,114 @@ if uploaded_file:
                 hallazgos_res = [
                     {
                         "criterio_afectado": edited_rubrica[2]["Criterio"] if len(edited_rubrica) > 2 else "Juicio Probatorio",
-                        "texto_original": "[CONSIDERANDO SÉTIMO - PÁRRAFO 2]: Que, la prueba documental presentada por la parte demandada no desvirtúa las pretensiones de la demandante...",
+                        "texto_original": "CONSIDERANDO CUARTO: Que, la prueba documental presentada por la parte demandada no desvirtúa las pretensiones de la demandante...",
                         "vicio": "Motivación Aparente y Defecto de Valoración Probatoria (STC 00728-2008-PHC/TC)",
                         "base_legal": "Art. 197 del Código Procesal Civil Peruano",
-                        "propuesta_redaccion": "[REEMPLAZO DIRECTO DEL PÁRRAFO SÉTIMO]: Respecto a la documental N° 04 presentada por la defensa, este despacho advierte que si bien sostiene la falta de responsabilidad, queda desvirtuada al contrastarse de forma conjunta con la prueba testimonial de fojas 45, toda vez que no justifica la omisión del deber de cuidado conforme al Art. 197 del CPC."
+                        "propuesta_redaccion": "CONSIDERANDO CUARTO (REVISIÓN SUBSANATORIA): Respecto a la documental N° 04 presentada por la defensa, este despacho advierte que si bien sostiene la falta de responsabilidad, queda desvirtuada al contrastarse de forma conjunta con la prueba testimonial de fojas 45, toda vez que no justifica la omisión del deber de cuidado conforme al Art. 197 del CPC."
                     }
                 ]
-            elif ejecutado_con_ia:
+            else:
                 st.success(f"✅ **¡Auditoría Real Exitosa!** Sentencia procesada en tiempo real con **Google Gemini** (`{model_used_name}`)")
 
-            # --- RENDERIZADO DE RESULTADOS ---
-            if ejecutado_con_ia or provider == "Modo Demostración Local":
-                total_score = sum(c["score"] for c in criterios_res)
-                for c in criterios_res:
-                    c["pct"] = (c["score"] / c["max_pts"]) * 100 if c["max_pts"] > 0 else 0
+            # --- CÁLCULO DE MÉTRICAS ---
+            total_score = sum(c["score"] for c in criterios_res)
+            for c in criterios_res:
+                c["pct"] = (c["score"] / c["max_pts"]) * 100 if c["max_pts"] > 0 else 0
 
-                pct_cumplimiento = (total_score / max_score_posible) * 100 if max_score_posible > 0 else 0
-                pct_riesgo = round(100.0 - pct_cumplimiento, 1)
+            pct_cumplimiento = (total_score / max_score_posible) * 100 if max_score_posible > 0 else 0
+            pct_riesgo = round(100.0 - pct_cumplimiento, 1)
 
-                st.markdown("---")
-                st.subheader("📊 Métrica Global de Auditoría Judicial")
+            st.markdown("---")
+            st.subheader("📊 Métrica Global de Auditoría Judicial")
 
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.markdown(
-                        f"""
-                    <div class="metric-box">
-                        <small>CUMPLIMIENTO NORMATIVO</small>
-                        <div class="metric-value">{pct_cumplimiento:.1f}%</div>
-                        <small>Score: <b>{total_score:.1f} / {max_score_posible:.1f} pts</b></small>
-                    </div>
-                    """,
-                        unsafe_allow_html=True,
-                    )
-
-                with col2:
-                    st.markdown(
-                        f"""
-                    <div class="metric-box">
-                        <small>RIESGO DE NULIDAD / DEFECTOS</small>
-                        <div class="metric-risk">{pct_riesgo:.1f}%</div>
-                        <small>Párrafos críticos: <b>{len(hallazgos_res)}</b></small>
-                    </div>
-                    """,
-                        unsafe_allow_html=True,
-                    )
-
-                with col3:
-                    nivel_txt = "Sobresaliente / Conforme" if pct_cumplimiento >= 85 else ("Observado / Subsanable" if pct_cumplimiento >= 60 else "Alto Riesgo de Nulidad")
-                    st.markdown(
-                        f"""
-                    <div class="metric-box">
-                        <small>ESTADO DE LA SENTENCIA</small>
-                        <div style="font-size: 1.3rem; font-weight:800; color:#1E3A8A; margin-top:15px;">{nivel_txt}</div>
-                    </div>
-                    """,
-                        unsafe_allow_html=True,
-                    )
-
-                st.markdown("---")
-                st.subheader("📋 Calificación por Criterios (Rúbrica Dinámica Configurada)")
-                for c in criterios_res:
-                    st.write(f"**{c['nombre']}** — `{c['score']} / {c['max_pts']} pts` ({c['pct']:.0f}%)")
-                    st.progress(min(max(c['pct'] / 100.0, 0.0), 1.0))
-                    st.caption(f"📌 {c['detalle']}")
-
-                st.markdown("---")
-                st.subheader("🔍 Auditoría Párrafo por Párrafo (Subsanación Integral de Defectos)")
-                st.info("Extractos detectados con vicios de motivación y sus respectivas propuestas de texto subsanado conforme a las leyes peruanas:")
-
-                for i, h in enumerate(hallazgos_res, 1):
-                    st.markdown(f"#### 📍 Observación N° {i}: {h['criterio_afectado']}")
-                    st.markdown(f"<span class='legal-badge'>Vicio: {h['vicio']}</span> | **Base Legal Peruana:** {h['base_legal']}", unsafe_allow_html=True)
-                    
-                    st.markdown(
-                        f"""
-                        <div class="obs-box">
-                            <b>⚠️ PÁRRAFO ORIGINAL OBSERVADO EN LA SENTENCIA:</b><br>
-                            <i>"{h['texto_original']}"</i>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-                    
-                    st.markdown(
-                        f"""
-                        <div class="fix-box">
-                            <b>✅ PROPUESTA DE REDACCIÓN SUBSANATORIA (CONFORME A DERECHO PERUANO):</b><br>
-                            <b>"{h['propuesta_redaccion']}"</b>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-                    st.markdown("---")
-
-                # --- BOTÓN DE DESCARGA EN WORD ---
-                word_file = create_word_report(
-                    uploaded_file.name,
-                    total_score,
-                    max_score_posible,
-                    pct_cumplimiento,
-                    pct_riesgo,
-                    criterios_res,
-                    hallazgos_res,
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown(
+                    f"""
+                <div class="metric-box">
+                    <small>CUMPLIMIENTO NORMATIVO</small>
+                    <div class="metric-value">{pct_cumplimiento:.1f}%</div>
+                    <small>Score: <b>{total_score:.1f} / {max_score_posible:.1f} pts</b></small>
+                </div>
+                """,
+                    unsafe_allow_html=True,
                 )
 
-                st.download_button(
-                    label="📄 Descargar Informe Oficial en Word (.docx)",
-                    data=word_file,
-                    file_name=f"Informe_Auditoria_LexSentencia_{uploaded_file.name}.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    type="primary",
+            with col2:
+                st.markdown(
+                    f"""
+                <div class="metric-box">
+                    <small>RIESGO DE NULIDAD / DEFECTOS</small>
+                    <div class="metric-risk">{pct_riesgo:.1f}%</div>
+                    <small>Párrafos críticos: <b>{len(hallazgos_res)}</b></small>
+                </div>
+                """,
+                    unsafe_allow_html=True,
                 )
+
+            with col3:
+                nivel_txt = "Sobresaliente / Conforme" if pct_cumplimiento >= 85 else ("Observado / Subsanable" if pct_cumplimiento >= 60 else "Alto Riesgo de Nulidad")
+                st.markdown(
+                    f"""
+                <div class="metric-box">
+                    <small>ESTADO DE LA SENTENCIA</small>
+                    <div style="font-size: 1.3rem; font-weight:800; color:#1E3A8A; margin-top:15px;">{nivel_txt}</div>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+
+            st.markdown("---")
+            st.subheader("📋 Calificación por Criterios (Rúbrica Dinámica Configurada)")
+            for c in criterios_res:
+                st.write(f"**{c['nombre']}** — `{c['score']} / {c['max_pts']} pts` ({c['pct']:.0f}%)")
+                st.progress(min(max(c['pct'] / 100.0, 0.0), 1.0))
+                st.caption(f"📌 {c['detalle']}")
+
+            st.markdown("---")
+            st.subheader("🔍 Auditoría Párrafo por Párrafo (Subsanación Integral de Defectos)")
+            st.info("A continuación se detallan todas las observaciones detectadas con su correspondiente propuesta de redacción subsanatoria para alcanzar el 100% de cumplimiento:")
+
+            for i, h in enumerate(hallazgos_res, 1):
+                st.markdown(f"#### 📍 Observación N° {i}: {h['criterio_afectado']}")
+                st.markdown(f"<span class='legal-badge'>Vicio: {h['vicio']}</span> | **Base Legal Peruana:** {h['base_legal']}", unsafe_allow_html=True)
+                
+                st.markdown(
+                    f"""
+                    <div class="obs-box">
+                        <b>⚠️ PÁRRAFO ORIGINAL OBSERVADO EN LA SENTENCIA:</b><br>
+                        <i>"{h['texto_original']}"</i>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                
+                st.markdown(
+                    f"""
+                    <div class="fix-box">
+                        <b>✅ PROPUESTA DE REDACCIÓN SUBSANATORIA (CONFORME A DERECHO PERUANO):</b><br>
+                        <b>"{h['propuesta_redaccion']}"</b>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                st.markdown("---")
+
+            # --- BOTÓN DE DESCARGA EN WORD ---
+            word_file = create_word_report(
+                uploaded_file.name,
+                total_score,
+                max_score_posible,
+                pct_cumplimiento,
+                pct_riesgo,
+                criterios_res,
+                hallazgos_res,
+            )
+
+            st.download_button(
+                label="📄 Descargar Informe Oficial en Word (.docx)",
+                data=word_file,
+                file_name=f"Informe_Auditoria_LexSentencia_{uploaded_file.name}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                type="primary",
+            )
