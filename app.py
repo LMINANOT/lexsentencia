@@ -1,19 +1,12 @@
-from pathlib import Path
-
-code = r'''import io
+import io
 import json
-import re
-import time
 import requests
 import docx
-import streamlit as st
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import RGBColor
-
-# ============================================================
-# LEXSENTENCIA 2026 - AUDITORÍA JUDICIAL POR BLOQUES
-# ============================================================
+import pypdf
+import streamlit as st
 
 st.set_page_config(
     page_title="LexSentencia 2026 - Auditoría Judicial Peruana",
@@ -21,421 +14,150 @@ st.set_page_config(
     layout="wide",
 )
 
-st.markdown("""
-<style>
-.main-title {font-size:2.2rem;color:#1E3A8A;font-weight:800;text-align:center}
-.sub-title {font-size:1.05rem;color:#4B5563;text-align:center;margin-bottom:25px}
-.metric-box {background:#F8FAFC;border:2px solid #1E3A8A;border-radius:12px;padding:18px;text-align:center}
-.metric-value {font-size:2.5rem;font-weight:900;color:#1E3A8A}
-.metric-risk {font-size:2.5rem;font-weight:900;color:#DC2626}
-.turnitin-obs-box {background:#FEF2F2;border-left:5px solid #EF4444;padding:15px;border-radius:6px;margin:12px 0}
-.turnitin-fix-box {background:#ECFDF5;border-left:5px solid #10B981;padding:15px;border-radius:6px;margin:12px 0}
-.legal-badge {background:#DBEAFE;color:#1E40AF;padding:3px 8px;border-radius:4px;font-weight:700;font-size:.82rem}
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown('<div class="main-title">⚖️ LexSentencia 2026</div>', unsafe_allow_html=True)
+# Estilos CSS de la interfaz (Estilo Turnitin)
 st.markdown(
-    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano'
-    '<br><b>Análisis integral por bloques con Google Gemini API</b></div>',
+    """
+<style>
+    .main-title { font-size: 2.2rem; color: #1E3A8A; font-weight: 800; text-align: center; }
+    .sub-title { font-size: 1.05rem; color: #4B5563; text-align: center; margin-bottom: 25px; }
+    .metric-box { background-color: #F8FAFC; border: 2px solid #1E3A8A; border-radius: 12px; padding: 18px; text-align: center; }
+    .metric-value { font-size: 2.8rem; font-weight: 900; color: #1E3A8A; }
+    .metric-risk { font-size: 2.8rem; font-weight: 900; color: #DC2626; }
+    
+    .turnitin-obs-box {
+        background-color: #FEF2F2;
+        border-left: 5px solid #EF4444;
+        padding: 15px;
+        border-radius: 6px;
+        margin-top: 15px;
+        margin-bottom: 5px;
+    }
+    .turnitin-fix-box {
+        background-color: #ECFDF5;
+        border-left: 5px solid #10B981;
+        padding: 15px;
+        border-radius: 6px;
+        margin-bottom: 20px;
+    }
+    .legal-badge { background-color: #DBEAFE; color: #1E40AF; padding: 3px 8px; border-radius: 4px; font-weight: 700; font-size: 0.82rem; }
+</style>
+""",
     unsafe_allow_html=True,
 )
 
-# ---------------- CONFIGURACIÓN ----------------
-st.sidebar.header("⚙️ Motor de IA & API")
-provider = st.sidebar.selectbox(
-    "Proveedor de IA",
-    ["Google Gemini (IA Real)", "Modo Demostración Local"]
+st.markdown('<div class="main-title">⚖️ LexSentencia 2026</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano<br><b>Análisis Párrafo por Párrafo (Estilo Turnitin) con Conexión Dinámica a Google Gemini</b></div>',
+    unsafe_allow_html=True,
 )
 
-api_key = ""
+# --- CONFIGURACIÓN DE BARRA LATERAL ---
+st.sidebar.header("⚙️ Motor de IA & API")
+provider = st.sidebar.selectbox("Proveedor de IA", ["Google Gemini (IA Real)", "Modo Demostración Local"])
+
 if provider == "Google Gemini (IA Real)":
-    api_key = st.sidebar.text_input(
-        "API Key de Google Gemini",
-        type="password",
-        value="",
-        help="También puedes guardarla en Streamlit Secrets como GEMINI_API_KEY."
-    )
+    api_key = st.sidebar.text_input("API Key de Google Gemini", type="password", value="")
 else:
-    st.sidebar.info("El modo demostración genera un ejemplo ficticio. No constituye auditoría jurídica.")
+    api_key = ""
+    st.sidebar.info("💡 El Modo Demostración muestra datos de prueba sin consumir API Key.")
 
 st.sidebar.markdown("---")
-st.sidebar.header("🛠️ Configuración de Rúbrica")
+st.sidebar.header("🛠️ Configuración de Rúbrica Dinámica")
 
-DEFAULT_RUBRIC = [
-    {"Criterio": "1. Delimitación del problema jurídico", "Max_Pts": 4.0},
-    {"Criterio": "2. Coherencia lógica y congruencia procesal", "Max_Pts": 4.0},
-    {"Criterio": "3. Razonamiento probatorio y valoración", "Max_Pts": 4.0},
-    {"Criterio": "4. Solidez argumentativa interna y externa", "Max_Pts": 4.0},
-    {"Criterio": "5. Utilización pertinente de jurisprudencia peruana", "Max_Pts": 4.0},
-]
 if "rubrica_criterios" not in st.session_state:
-    st.session_state.rubrica_criterios = DEFAULT_RUBRIC
+    st.session_state.rubrica_criterios = [
+        {"Criterio": "1. Delimitación del problema jurídico", "Max_Pts": 4.0},
+        {"Criterio": "2. Coherencia lógica y congruencia procesal", "Max_Pts": 4.0},
+        {"Criterio": "3. Razonamiento probatorio y valoración", "Max_Pts": 4.0},
+        {"Criterio": "4. Solidez argumentativa interna y externa", "Max_Pts": 4.0},
+        {"Criterio": "5. Utilización pertinente de jurisprudencia peruana", "Max_Pts": 4.0},
+    ]
 
 edited_rubrica = st.sidebar.data_editor(
     st.session_state.rubrica_criterios,
     num_rows="dynamic",
     column_config={
-        "Criterio": st.column_config.TextColumn("Nombre del criterio", width="large"),
-        "Max_Pts": st.column_config.NumberColumn(
-            "Puntos máximos", min_value=0.0, max_value=20.0, step=0.5
-        ),
+        "Criterio": st.column_config.TextColumn("Nombre del Criterio", width="large"),
+        "Max_Pts": st.column_config.NumberColumn("Puntos Máx.", min_value=1.0, max_value=20.0, step=1.0),
     },
     key="rubrica_editor",
 )
-edited_rubrica = [
-    x for x in edited_rubrica
-    if str(x.get("Criterio", "")).strip() and float(x.get("Max_Pts") or 0) > 0
-]
-max_score_posible = sum(float(x["Max_Pts"]) for x in edited_rubrica)
-st.sidebar.caption(f"Puntaje máximo configurado: {max_score_posible:.1f} puntos")
 
-# El tamaño de bloque es un parámetro técnico, no un límite total del documento.
-chunk_size = st.sidebar.select_slider(
-    "Tamaño aproximado de cada bloque (caracteres)",
-    options=[8000, 10000, 12000, 14000],
-    value=10000,
-)
-overlap_chars = st.sidebar.select_slider(
-    "Solapamiento entre bloques",
-    options=[400, 600, 800, 1000],
-    value=800,
-)
+max_score_posible = sum(item["Max_Pts"] for item in edited_rubrica if item.get("Max_Pts"))
+st.sidebar.caption(f"**Puntaje Máximo Total Configurado:** `{max_score_posible:.1f} Puntos`")
 
-# ---------------- EXTRACCIÓN Y DIVISIÓN ----------------
+
 def extract_text(uploaded_file) -> str:
     name = uploaded_file.name.lower()
+    text = ""
     if name.endswith(".pdf"):
         reader = pypdf.PdfReader(uploaded_file)
-        pages = []
-        for page_number, page in enumerate(reader.pages, start=1):
-            page_text = page.extract_text() or ""
-            pages.append(f"\n[PÁGINA PDF {page_number}]\n{page_text}")
-        return "\n".join(pages)
-    if name.endswith(".docx"):
-        document = docx.Document(uploaded_file)
-        return "\n".join(p.text for p in document.paragraphs if p.text.strip())
-    return uploaded_file.read().decode("utf-8", errors="ignore")
+        for page in reader.pages:
+            t = page.extract_text()
+            if t:
+                text += t + "\n"
+    elif name.endswith(".docx"):
+        doc = docx.Document(uploaded_file)
+        text = "\n".join([p.text for p in doc.paragraphs if p.text])
+    else:
+        text = uploaded_file.read().decode("utf-8", errors="ignore")
+    return text
 
 
-def split_into_chunks(text: str, max_chars: int, overlap: int):
-    """Divide por párrafos; conserva referencias consecutivas y solapamiento."""
-    paragraphs = [
-        p.strip() for p in re.split(r"\n\s*\n", text)
-        if p and p.strip()
-    ]
-    if not paragraphs:
-        paragraphs = [text.strip()] if text.strip() else []
-
-    tagged = [f"[PÁRRAFO {i:05d}]\n{p}" for i, p in enumerate(paragraphs, 1)]
-    chunks = []
-    current = []
-    current_len = 0
-
-    for paragraph in tagged:
-        p_len = len(paragraph) + 2
-        if current and current_len + p_len > max_chars:
-            chunks.append("\n\n".join(current))
-
-            # Retener párrafos completos del final como contexto compartido.
-            tail = []
-            tail_len = 0
-            for old in reversed(current):
-                if tail_len + len(old) + 2 > overlap:
-                    break
-                tail.insert(0, old)
-                tail_len += len(old) + 2
-
-            current = tail[:]
-            current_len = sum(len(x) + 2 for x in current)
-
-        # Un párrafo individual muy largo se conserva completo, sin truncarlo.
-        current.append(paragraph)
-        current_len += p_len
-
-    if current:
-        chunks.append("\n\n".join(current))
-    return chunks
-
-
-def normalize_text(value: str) -> str:
-    return re.sub(r"\s+", " ", value or "").strip()
-
-
-# ---------------- GEMINI ----------------
-GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
-
-
-def list_usable_models(key: str):
-    response = requests.get(
-        f"{GEMINI_BASE}/models",
-        params={"key": key, "pageSize": 1000},
-        timeout=30,
-    )
-    response.raise_for_status()
-    models = response.json().get("models", [])
-    usable = [
-        m for m in models
-        if "generateContent" in m.get("supportedGenerationMethods", [])
-        and "flash" in m.get("name", "").lower()
-    ]
-    if not usable:
-        usable = [
-            m for m in models
-            if "generateContent" in m.get("supportedGenerationMethods", [])
-        ]
-
-    # Preferir versiones estables recientes cuando la clave las tenga habilitadas.
-    preferred = [
-        "gemini-3.8-flash",
-        "gemini-3.7-flash",
-        "gemini-3.6-flash",
-        "gemini-3.5-flash",
-        "gemini-2.5-flash",
-    ]
-    by_name = {m["name"].replace("models/", ""): m for m in usable}
-    for name in preferred:
-        if name in by_name:
-            return name, by_name[name]
-
-    if not usable:
-        raise RuntimeError("La API Key no muestra modelos compatibles con generateContent.")
-
-    usable.sort(key=lambda x: x.get("name", ""), reverse=True)
-    chosen = usable[0]
-    return chosen["name"].replace("models/", ""), chosen
-
-
-def call_gemini(model_name: str, key: str, prompt: str, max_output_tokens=8192):
-    url = f"{GEMINI_BASE}/models/{model_name}:generateContent"
-    payload = {
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.1,
-            "responseMimeType": "application/json",
-            "maxOutputTokens": max_output_tokens,
-        },
-    }
-
-    last_error = ""
-    for attempt in range(3):
-        try:
-            response = requests.post(
-                url,
-                params={"key": key},
-                headers={"Content-Type": "application/json"},
-                json=payload,
-                timeout=240,
-            )
-            if response.status_code in (429, 500, 502, 503, 504):
-                last_error = f"HTTP {response.status_code}: {response.text[:1200]}"
-                time.sleep(2 ** attempt)
-                continue
-            response.raise_for_status()
-            result = response.json()
-            parts = result["candidates"][0]["content"]["parts"]
-            text = "".join(part.get("text", "") for part in parts).strip()
-            if text.startswith("```"):
-                text = re.sub(r"^```(?:json)?\s*", "", text)
-                text = re.sub(r"\s*```$", "", text)
-            return json.loads(text)
-        except (requests.RequestException, KeyError, IndexError, ValueError) as exc:
-            last_error = str(exc)
-            if attempt < 2:
-                time.sleep(2 ** attempt)
-
-    raise RuntimeError(last_error or "No se obtuvo respuesta válida de Gemini.")
-
-
-def audit_chunk(model_name: str, key: str, chunk_text: str, chunk_number: int, total_chunks: int):
-    prompt = f"""
-Actúa como auditor jurídico experto en derecho peruano.
-Analiza exclusivamente el contenido del bloque {chunk_number} de {total_chunks}
-de una sentencia. Este bloque forma parte de un documento mayor: NO concluyas
-sobre la sentencia completa ni asignes una nota global.
-
-Examina posibles defectos de motivación, congruencia, valoración probatoria,
-coherencia argumentativa y uso de normas/jurisprudencia. Distingue una verdadera
-deficiencia de una mera discrepancia con el criterio judicial. No inventes hechos,
-citas, artículos, precedentes ni extractos. Si no hay un defecto sustentable,
-devuelve una lista vacía.
-
-Devuelve únicamente JSON con esta estructura:
-{{
-  "hallazgos_parrafos": [
-    {{
-      "parrafo_ref": "PÁRRAFO 00001",
-      "criterio_afectado": "criterio",
-      "texto_original": "extracto literal breve y verificable",
-      "vicio": "defecto identificado o 'No se acredita un vicio'",
-      "base_legal": "norma o jurisprudencia pertinente; indica si requiere verificación",
-      "analisis": "explicación jurídica contextual",
-      "propuesta_redaccion": "propuesta de subsanación; si no corresponde, cadena vacía"
-    }}
-  ],
-  "observaciones_generales_bloque": ["observación breve"]
-}}
-
-Reglas:
-- Máximo 8 hallazgos relevantes por bloque.
-- El texto_original debe ser literal y estar dentro del bloque.
-- No conviertas automáticamente cada párrafo en un hallazgo.
-- No atribuyas carácter vinculante a jurisprudencia sin sustento.
-- Si falta contexto de otro bloque, dilo expresamente.
-
-CONTENIDO DEL BLOQUE:
-{chunk_text}
-"""
-    return call_gemini(model_name, key, prompt, 8192)
-
-
-def consolidate_audit(model_name: str, key: str, rubric, findings, document_chars: int):
-    rubric_text = "\n".join(
-        f"- {item['Criterio']}: máximo {float(item['Max_Pts']):.1f} puntos"
-        for item in rubric
-    )
-    findings_json = json.dumps(findings, ensure_ascii=False)
-    prompt = f"""
-Actúa como auditor jurídico experto en derecho peruano. Recibirás hallazgos
-preliminares de todos los bloques de una sentencia de {document_chars} caracteres.
-Realiza una evaluación GLOBAL, no sumes notas parciales de bloques.
-
-RÚBRICA:
-{rubric_text}
-
-HALLAZGOS PRELIMINARES:
-{findings_json}
-
-INSTRUCCIONES:
-1. Evalúa cada criterio de la rúbrica una sola vez, sobre el documento completo.
-2. Asigna un puntaje entre 0 y el máximo del criterio, sin excederlo.
-3. Fundamenta cada nota con evidencia concreta y explica también fortalezas.
-4. Consolida hallazgos repetidos y evita duplicados.
-5. No inventes normas, citas, hechos ni pasajes de la sentencia.
-6. Si la base legal requiere comprobación, indícalo.
-7. El porcentaje de riesgo no equivale automáticamente a probabilidad jurídica de nulidad.
-8. Si no hay hallazgos, la lista puede quedar vacía; eso no impide una auditoría válida.
-
-Devuelve únicamente JSON:
-{{
-  "criterios_evaluados": [
-    {{
-      "nombre": "nombre exacto del criterio",
-      "score": 0.0,
-      "max_pts": 4.0,
-      "nivel": "Satisfactorio / Observado / Deficiente",
-      "detalle": "fundamentación global"
-    }}
-  ],
-  "hallazgos_parrafos": [
-    {{
-      "parrafo_ref": "PÁRRAFO 00001",
-      "criterio_afectado": "criterio",
-      "texto_original": "extracto literal",
-      "vicio": "defecto",
-      "base_legal": "sustento",
-      "analisis": "explicación",
-      "propuesta_redaccion": "propuesta"
-    }}
-  ],
-  "conclusion_general": "conclusión jurídica global y prudente",
-  "limitaciones": ["limitación si corresponde"]
-}}
-"""
-    return call_gemini(model_name, key, prompt, 12000)
-
-
-# ---------------- INFORME WORD ----------------
-def create_word_report(
-    filename, score_total, max_score, pct_compliance, pct_risk,
-    criteria, findings, conclusion, limitations, model_name, total_chars, total_chunks
-):
+def create_word_report(filename, score_total, max_score, pct_cumplimiento, pct_riesgo, criterios, hallazgos_parrafos):
     doc = Document()
-    title = doc.add_heading("INFORME DE AUDITORÍA JUDICIAL Y MOTIVACIÓN DE SENTENCIA", 0)
+
+    title = doc.add_heading("INFORME DE AUDITORÍA JUDICIAL Y MOTIVACIÓN SENTENCIA", level=0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    subtitle = doc.add_paragraph(
-        "LexSentencia 2026 | Referencia de análisis: Constitución Política del Perú "
-        "y jurisprudencia constitucional aplicable"
-    )
-    subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    sub = doc.add_paragraph("LexSentencia 2026 | Estándares del Tribunal Constitucional (STC 00728-2008-PHC/TC)")
+    sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    doc.add_paragraph(f"Documento auditado: {filename}")
-    doc.add_paragraph(f"Extensión extraída: {total_chars:,} caracteres")
-    doc.add_paragraph(f"Bloques procesados: {total_chunks}")
-    doc.add_paragraph(f"Modelo Gemini: {model_name}")
-    doc.add_paragraph(
-        "Nota metodológica: la herramienta es un apoyo de análisis y no sustituye "
-        "la revisión profesional ni la verificación de fuentes jurídicas."
-    )
+    doc.add_paragraph(f"Documento Auditado: {filename}")
+    doc.add_paragraph()
 
-    doc.add_heading("1. Resumen ejecutivo", level=1)
-    table = doc.add_table(rows=3, cols=2)
-    table.style = "Table Grid"
-    table.cell(0, 0).text = "Métrica"
-    table.cell(0, 1).text = "Resultado"
-    table.cell(1, 0).text = "Cumplimiento según rúbrica"
-    table.cell(1, 1).text = f"{pct_compliance:.1f}% ({score_total:.1f}/{max_score:.1f})"
-    table.cell(2, 0).text = "Indicador complementario de aspectos observados"
-    table.cell(2, 1).text = f"{pct_risk:.1f}%"
+    doc.add_heading("1. RESUMEN EJECUTIVO Y MÉTRICAS ESTILO TURNITIN", level=1)
+    t_summary = doc.add_table(rows=3, cols=2)
+    t_summary.style = 'Table Grid'
+    t_summary.cell(0, 0).text = "Métrica de Evaluación"
+    t_summary.cell(0, 1).text = "Resultado Obtenido"
+    t_summary.cell(1, 0).text = "Porcentaje de Cumplimiento Normativo:"
+    t_summary.cell(1, 1).text = f"{pct_cumplimiento:.1f}% ({score_total:.1f} / {max_score:.1f} pts)"
+    t_summary.cell(2, 0).text = "Índice de Riesgo de Nulidad por Defectos:"
+    t_summary.cell(2, 1).text = f"{pct_riesgo:.1f}%"
 
-    doc.add_heading("2. Calificación por criterios", level=1)
-    for criterion in criteria:
+    doc.add_paragraph()
+
+    doc.add_heading("2. EVALUACIÓN DE RÚBRICA PERSONALIZADA", level=1)
+    for c in criterios:
         p = doc.add_paragraph()
-        p.add_run(
-            f"{criterion['nombre']}: {criterion['score']} / "
-            f"{criterion['max_pts']} puntos ({criterion['pct']:.1f}%)"
-        ).bold = True
-        doc.add_paragraph(
-            f"Nivel: {criterion.get('nivel', 'No especificado')}. "
-            f"Fundamento: {criterion.get('detalle', '')}"
-        )
+        p.add_run(f"• {c['nombre']}: ").bold = True
+        p.add_run(f"{c['score']} / {c['max_pts']} pts ({c['pct']:.0f}%) — Estado: {c['nivel']}\n")
+        p.add_run(f"  Detalle: {c['detalle']}")
 
-    doc.add_heading("3. Hallazgos por párrafo", level=1)
-    if not findings:
-        doc.add_paragraph(
-            "No se identificaron hallazgos que superaran el umbral de relevancia "
-            "en el análisis automatizado. Esto no equivale a certificar la ausencia "
-            "de errores jurídicos."
-        )
+    doc.add_paragraph()
 
-    for index, finding in enumerate(findings, 1):
-        doc.add_heading(
-            f"Observación {index}: {finding.get('criterio_afectado', 'Sin criterio')}",
-            level=2
-        )
-        doc.add_paragraph(f"Referencia: {finding.get('parrafo_ref', 'No identificada')}")
-        p = doc.add_paragraph()
-        p.add_run("Extracto literal: ").bold = True
-        run = p.add_run(finding.get("texto_original", ""))
-        run.italic = True
-        run.font.color.rgb = RGBColor(180, 0, 0)
+    doc.add_heading("3. AUDITORÍA PÁRRAFO POR PÁRRAFO: OBSERVACIONES Y SUBSANACIÓN JURÍDICA", level=1)
+    for i, h in enumerate(hallazgos_parrafos, 1):
+        doc.add_heading(f"Observación N° {i}: {h['criterio_afectado']}", level=2)
+        
+        p_obs = doc.add_paragraph()
+        p_obs.add_run("TEXTO ORIGINAL OBSERVADO EN LA SENTENCIA:\n").bold = True
+        run_obs = p_obs.add_run(f'"{h["texto_original"]}"')
+        run_obs.font.italic = True
+        run_obs.font.color.rgb = RGBColor(180, 0, 0)
+        
+        p_law = doc.add_paragraph()
+        p_law.add_run("Vicio Detectado / Base Legal Peruana: ").bold = True
+        p_law.add_run(f"{h['vicio']} | Sustento: {h['base_legal']}")
 
-        p = doc.add_paragraph()
-        p.add_run("Vicio / análisis: ").bold = True
-        p.add_run(
-            f"{finding.get('vicio', '')}. "
-            f"{finding.get('analisis', '')}"
-        )
+        p_fix = doc.add_paragraph()
+        p_fix.add_run("PROPUESTA DE REDACCIÓN SUBSANATORIA SUGERIDA:\n").bold = True
+        run_fix = p_fix.add_run(f'"{h["propuesta_redaccion"]}"')
+        run_fix.font.bold = True
+        run_fix.font.color.rgb = RGBColor(0, 100, 0)
 
-        p = doc.add_paragraph()
-        p.add_run("Base legal: ").bold = True
-        p.add_run(finding.get("base_legal", ""))
-
-        if finding.get("propuesta_redaccion"):
-            p = doc.add_paragraph()
-            p.add_run("Propuesta de subsanación: ").bold = True
-            run = p.add_run(finding["propuesta_redaccion"])
-            run.bold = True
-            run.font.color.rgb = RGBColor(0, 100, 0)
-
-    doc.add_heading("4. Conclusión general", level=1)
-    doc.add_paragraph(conclusion or "No se generó una conclusión general.")
-
-    if limitations:
-        doc.add_heading("5. Limitaciones y verificaciones pendientes", level=1)
-        for item in limitations:
-            doc.add_paragraph(item, style="List Bullet")
+        doc.add_paragraph("─" * 40)
 
     buffer = io.BytesIO()
     doc.save(buffer)
@@ -443,283 +165,282 @@ def create_word_report(
     return buffer
 
 
-# ---------------- CARGA Y EJECUCIÓN ----------------
-uploaded_file = st.file_uploader(
-    "📁 Cargar sentencia judicial (PDF, Word o TXT)",
-    type=["pdf", "docx", "txt"]
-)
+uploaded_file = st.file_uploader("📁 Cargar Sentencia Judicial (PDF o Word)", type=["pdf", "docx", "txt"])
 
 if uploaded_file:
     raw_text = extract_text(uploaded_file)
-    total_chars = len(raw_text)
-    st.success(
-        f"Sentencia cargada: **{uploaded_file.name}** "
-        f"({total_chars:,} caracteres extraídos)."
-    )
+    st.success(f"📄 Sentencia cargada: **{uploaded_file.name}** ({len(raw_text):,} caracteres)")
 
-    if total_chars == 0:
-        st.error("No se pudo extraer texto. Si el PDF es escaneado, necesita OCR.")
-        st.stop()
+    if st.button("🚀 Audit Sentencia (Modo Turnitin + Rúbrica Personalizada)", type="primary"):
+        with st.spinner("🔍 Conectando dinámicamente con Google Gemini para auditar la sentencia..."):
+            
+            criterios_res = []
+            hallazgos_res = []
+            ejecutado_con_ia = False
+            model_used_name = ""
 
-    if total_chars < 200000:
-        st.info(
-            f"El documento tiene {total_chars:,} caracteres. "
-            "No existe un recorte fijo de 14,000 caracteres: se procesará "
-            "todo el texto extraído, aunque sea menor o mayor a 200,000."
-        )
-    else:
-        st.success("El documento supera los 200,000 caracteres y se procesará completo por bloques.")
+            rubrica_str = "\n".join([f"- {item['Criterio']}: max {item['Max_Pts']} pts" for item in edited_rubrica])
 
-    if st.button("🚀 Auditar sentencia completa", type="primary"):
-        if not edited_rubrica or max_score_posible <= 0:
-            st.error("Configura al menos un criterio válido en la rúbrica.")
-            st.stop()
+            prompt_text = (
+                "Actúa como un Auditor Jurídico Experto en Derecho Peruano.\n"
+                "Audita la sentencia adjunta verificando el cumplimiento del derecho peruano:\n"
+                "- Art. 139 inc. 5 de la Constitución Política del Perú.\n"
+                "- Precedente vinculante STC N° 00728-2008-PHC/TC (Vicios de motivación).\n"
+                "- Normativa peruana aplicable (CPC, CPP, CC o CP según el caso).\n\n"
+                "RÚBRICA DE EVALUACIÓN PERSONALIZADA:\n"
+                + rubrica_str + "\n\n"
+                "INSTRUCCIONES:\n"
+                "1. Evalúa cada criterio de la rúbrica asignando un score exacto sin superar max_pts.\n"
+                "2. Extrae extractos o frases textuales reales de la sentencia cargada que contengan vicios de motivación y redacta la propuesta de texto subsanada.\n"
+                "3. Responde EXCLUSIVAMENTE un objeto JSON válido con esta estructura exacta:\n"
+                "{\n"
+                '  "criterios_evaluados": [\n'
+                '    {"nombre": "Nombre Criterio", "score": 3.0, "max_pts": 4.0, "nivel": "Satisfactorio", "detalle": "Sustento en norma peruana"}\n'
+                "  ],\n"
+                '  "hallazgos_parrafos": [\n'
+                "    {\n"
+                '      "criterio_afectado": "Nombre Criterio",\n'
+                '      "texto_original": "Extracto textual exacto hallado en la sentencia auditada",\n'
+                '      "vicio": "Vicio de motivación según STC 00728-2008-PHC/TC",\n'
+                '      "base_legal": "Artículos o jurisprudencia peruana aplicable",\n'
+                '      "propuesta_redaccion": "Propuesta de redacción subsanada conforme a derecho peruano"\n'
+                "    }\n"
+                "  ]\n"
+                "}\n\n"
+                "TEXTO DE LA SENTENCIA A AUDITAR:\n"
+                + raw_text[:14000]
+            )
 
-        if provider == "Google Gemini (IA Real)":
-            # Prioridad a Streamlit Secrets; si no existe, usa el campo lateral.
-            secret_key = ""
-            try:
-                secret_key = st.secrets.get("GEMINI_API_KEY", "")
-            except Exception:
-                secret_key = ""
-            effective_key = secret_key or api_key.strip()
+            # --- CONEXIÓN DINÁMICA HTTP REST A GOOGLE GEMINI ---
+            if provider == "Google Gemini (IA Real)":
+                clean_key = api_key.strip()
+                if not clean_key:
+                    st.error("❌ No ingresaste la API Key de Gemini en la barra lateral.")
+                else:
+                    headers = {
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": clean_key
+                    }
+                    
+                    # 1. Obtención de modelos activos directamente desde la API de Google
+                    discovered_models = []
+                    for api_ver in ["v1beta", "v1"]:
+                        try:
+                            list_url = f"https://generativelanguage.googleapis.com/{api_ver}/models?key={clean_key}"
+                            res = requests.get(list_url, headers=headers, timeout=10)
+                            if res.status_code == 200:
+                                models_list = res.json().get("models", [])
+                                for m in models_list:
+                                    methods = m.get("supportedGenerationMethods", [])
+                                    if "generateContent" in methods:
+                                        m_name = m.get("name", "")
+                                        if m_name and (api_ver, m_name) not in discovered_models:
+                                            discovered_models.append((api_ver, m_name))
+                        except Exception:
+                            pass
 
-            if not effective_key:
-                st.error("Introduce tu API Key o configúrala en Streamlit Secrets.")
-                st.stop()
+                    # Fallback directo si la consulta de modelos no responde
+                    if not discovered_models:
+                        discovered_models = [
+                            ("v1beta", "models/gemini-1.5-flash"),
+                            ("v1beta", "models/gemini-1.5-pro"),
+                            ("v1", "models/gemini-1.5-flash"),
+                            ("v1", "models/gemini-1.5-pro")
+                        ]
 
-            try:
-                with st.spinner("Consultando modelos disponibles de Gemini..."):
-                    model_name, model_info = list_usable_models(effective_key)
+                    res_text = None
+                    last_http_error = ""
 
-                st.info(
-                    f"Modelo seleccionado automáticamente: **{model_name}**. "
-                    "Se verificó que admite generateContent."
-                )
+                    # 2. Ejecutar la auditoría probando los modelos activos identificados
+                    for api_ver, m_full in discovered_models:
+                        url = f"https://generativelanguage.googleapis.com/{api_ver}/{m_full}:generateContent?key={clean_key}"
+                        
+                        payload_json = {
+                            "contents": [{"parts": [{"text": prompt_text}]}],
+                            "generationConfig": {
+                                "response_mime_type": "application/json",
+                                "temperature": 0.2
+                            }
+                        }
+                        
+                        try:
+                            response = requests.post(url, headers=headers, json=payload_json, timeout=45)
+                            
+                            # Si el endpoint devuelve error por response_mime_type, reintentar con payload simple
+                            if response.status_code != 200:
+                                payload_simple = {
+                                    "contents": [{"parts": [{"text": prompt_text}]}],
+                                    "generationConfig": {"temperature": 0.2}
+                                }
+                                response = requests.post(url, headers=headers, json=payload_simple, timeout=45)
 
-                chunks = split_into_chunks(raw_text, chunk_size, overlap_chars)
-                st.write(
-                    f"El documento se dividirá en **{len(chunks)} bloques**. "
-                    "Todos los bloques se enviarán para análisis."
-                )
+                            if response.status_code == 200:
+                                res_json = response.json()
+                                candidates = res_json.get("candidates", [])
+                                if candidates and "content" in candidates[0]:
+                                    parts = candidates[0]["content"].get("parts", [])
+                                    if parts and "text" in parts[0]:
+                                        res_text = parts[0]["text"]
+                                        model_used_name = f"{m_full} ({api_ver})"
+                                        break
+                            else:
+                                last_http_error = f"{m_full} [{api_ver}] -> Estado HTTP {response.status_code}: {response.text}"
+                        except Exception as req_e:
+                            last_http_error = f"Excepción en {m_full}: {req_e}"
 
-                findings_all = []
-                progress = st.progress(0)
-                status = st.empty()
+                    if res_text:
+                        clean_str = res_text.strip()
+                        if "```json" in clean_str:
+                            clean_str = clean_str.split("```json")[1].split("```")[0].strip()
+                        elif "```" in clean_str:
+                            clean_str = clean_str.split("```")[1].split("```")[0].strip()
 
-                for idx, chunk in enumerate(chunks, start=1):
-                    status.write(f"Analizando bloque {idx} de {len(chunks)}...")
-                    chunk_result = audit_chunk(
-                        model_name, effective_key, chunk, idx, len(chunks)
-                    )
-                    for finding in chunk_result.get("hallazgos_parrafos", []):
-                        quote = normalize_text(finding.get("texto_original", ""))
-                        # Validar que el extracto exista en el texto extraído.
-                        if quote and quote in normalize_text(raw_text):
-                            findings_all.append(finding)
-                    progress.progress(idx / len(chunks))
+                        start_idx = clean_str.find("{")
+                        end_idx = clean_str.rfind("}")
+                        if start_idx != -1 and end_idx != -1:
+                            clean_str = clean_str[start_idx:end_idx+1]
 
-                status.write("Consolidando hallazgos y calificando la sentencia completa...")
-                final_data = consolidate_audit(
-                    model_name, effective_key, edited_rubrica,
-                    findings_all, total_chars
-                )
+                        try:
+                            data = json.loads(clean_str)
+                            criterios_res = data.get("criterios_evaluados", [])
+                            hallazgos_res = data.get("hallazgos_parrafos", [])
+                            if criterios_res and hallazgos_res:
+                                ejecutado_con_ia = True
+                        except Exception as parse_e:
+                            st.error(f"❌ La IA respondió pero no se pudo leer el JSON: {parse_e}")
+                    else:
+                        st.error(f"❌ Fallo al comunicar con Google API: {last_http_error}")
 
-                criteria = final_data.get("criterios_evaluados", [])
-                findings = final_data.get("hallazgos_parrafos", [])
-                conclusion = final_data.get("conclusion_general", "")
-                limitations = final_data.get("limitaciones", [])
+            # --- MODO DEMOSTRACIÓN LOCAL ---
+            if not ejecutado_con_ia:
+                if provider != "Google Gemini (IA Real)":
+                    st.info("ℹ️ Ejecutando auditoría en Modo Demostración Local.")
+                else:
+                    st.warning("⚠️ Se activaron datos de prueba debido a un problema con la clave o conexión.")
 
-                # Verificación estructural de los criterios devueltos.
-                expected_names = [x["Criterio"] for x in edited_rubrica]
-                returned_names = [x.get("nombre") for x in criteria]
-                if not criteria or any(name not in returned_names for name in expected_names):
-                    st.error(
-                        "Gemini no devolvió todos los criterios de la rúbrica. "
-                        "No se mostrará una nota incompleta como resultado final."
-                    )
-                    st.stop()
-
-                # Normalizar máximos y puntajes conforme a la rúbrica configurada.
-                rubric_map = {x["Criterio"]: float(x["Max_Pts"]) for x in edited_rubrica}
-                normalized_criteria = []
-                for item in criteria:
-                    name = item["nombre"]
-                    if name not in rubric_map:
-                        continue
-                    maximum = rubric_map[name]
-                    try:
-                        score = float(item.get("score", 0))
-                    except (TypeError, ValueError):
-                        score = 0.0
-                    score = min(max(score, 0.0), maximum)
-                    normalized_criteria.append({
-                        "nombre": name,
-                        "score": round(score, 2),
-                        "max_pts": maximum,
-                        "pct": (score / maximum * 100) if maximum else 0,
-                        "nivel": item.get("nivel", "No especificado"),
-                        "detalle": item.get("detalle", ""),
+                criterios_res = []
+                for item in edited_rubrica:
+                    max_p = item["Max_Pts"]
+                    assigned_p = round(max_p * 0.65, 1)
+                    criterios_res.append({
+                        "nombre": item["Criterio"],
+                        "score": assigned_p,
+                        "max_pts": max_p,
+                        "nivel": "Observado" if assigned_p < (max_p * 0.75) else "Satisfactorio",
+                        "detalle": "Presenta argumentación genérica; requiere fundamentación concreta en normas peruanas e interpretación conjunta de pruebas."
                     })
+                
+                hallazgos_res = [
+                    {
+                        "criterio_afectado": edited_rubrica[2]["Criterio"] if len(edited_rubrica) > 2 else "Juicio Probatorio",
+                        "texto_original": "CONSIDERANDO CUARTO: Que, la prueba documental presentada por la parte demandada no desvirtúa las pretensiones de la demandante...",
+                        "vicio": "Motivación Aparente y Defecto de Valoración Probatoria (STC 00728-2008-PHC/TC)",
+                        "base_legal": "Art. 197 del Código Procesal Civil Peruano",
+                        "propuesta_redaccion": "CONSIDERANDO CUARTO (REVISIÓN SUBSANATORIA): Respecto a la documental N° 04 presentada por la defensa, este despacho advierte que si bien sostiene la falta de responsabilidad, queda desvirtuada al contrastarse de forma conjunta con la prueba testimonial de fojas 45, toda vez que no justifica la omisión del deber de cuidado conforme al Art. 197 del CPC."
+                    }
+                ]
+            else:
+                st.success(f"✅ **¡Auditoría Real Exitosa!** Sentencia procesada en tiempo real con **Google Gemini** (`{model_used_name}`)")
 
-                criteria = normalized_criteria
-                total_score = sum(x["score"] for x in criteria)
-                pct_compliance = (
-                    total_score / max_score_posible * 100
-                    if max_score_posible else 0
-                )
-                # Indicador matemático complementario, no probabilidad de nulidad.
-                pct_risk = round(100 - pct_compliance, 1)
+            # --- CÁLCULO DE MÉTRICAS ---
+            total_score = sum(c["score"] for c in criterios_res)
+            for c in criterios_res:
+                c["pct"] = (c["score"] / c["max_pts"]) * 100 if c["max_pts"] > 0 else 0
 
-                st.success(
-                    f"Auditoría real completada. Modelo: {model_name}. "
-                    f"Bloques procesados: {len(chunks)}/{len(chunks)}."
-                )
+            pct_cumplimiento = (total_score / max_score_posible) * 100 if max_score_posible > 0 else 0
+            pct_riesgo = round(100.0 - pct_cumplimiento, 1)
 
-            except Exception as exc:
-                st.error(
-                    f"No se completó la auditoría real: {exc}. "
-                    "No se generarán notas ficticias."
-                )
-                st.stop()
+            st.markdown("---")
+            st.subheader("📊 Métrica Global de Auditoría (Estilo Turnitin)")
 
-        else:
-            st.warning(
-                "MODO DEMOSTRACIÓN: los siguientes datos son ilustrativos, "
-                "no proceden de una auditoría real de la sentencia."
-            )
-            criteria = []
-            for item in edited_rubrica:
-                maximum = float(item["Max_Pts"])
-                score = round(maximum * 0.65, 1)
-                criteria.append({
-                    "nombre": item["Criterio"],
-                    "score": score,
-                    "max_pts": maximum,
-                    "pct": score / maximum * 100 if maximum else 0,
-                    "nivel": "Demostración",
-                    "detalle": "Resultado ficticio de demostración; no usar como evaluación jurídica.",
-                })
-            findings = []
-            conclusion = "Resultado de demostración local. No es una auditoría real."
-            limitations = ["Los puntajes y textos de este modo son ficticios."]
-            model_name = "Modo demostración"
-            total_score = sum(x["score"] for x in criteria)
-            pct_compliance = total_score / max_score_posible * 100 if max_score_posible else 0
-            pct_risk = round(100 - pct_compliance, 1)
-            chunks = split_into_chunks(raw_text, chunk_size, overlap_chars)
-
-        # ---------------- RESULTADOS ----------------
-        st.markdown("---")
-        st.subheader("📊 Métrica global de auditoría")
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.markdown(
-                f'<div class="metric-box"><small>CUMPLIMIENTO SEGÚN RÚBRICA</small>'
-                f'<div class="metric-value">{pct_compliance:.1f}%</div>'
-                f'<small><b>{total_score:.1f} / {max_score_posible:.1f} puntos</b></small></div>',
-                unsafe_allow_html=True,
-            )
-        with col2:
-            st.markdown(
-                f'<div class="metric-box"><small>INDICADOR COMPLEMENTARIO</small>'
-                f'<div class="metric-risk">{pct_risk:.1f}%</div>'
-                f'<small>Hallazgos: <b>{len(findings)}</b></small></div>',
-                unsafe_allow_html=True,
-            )
-        with col3:
-            status_text = (
-                "Conforme según rúbrica" if pct_compliance >= 85
-                else "Requiere revisión" if pct_compliance >= 60
-                else "Deficiencias relevantes"
-            )
-            st.markdown(
-                f'<div class="metric-box"><small>RESULTADO DE LA RÚBRICA</small>'
-                f'<div style="font-size:1.25rem;font-weight:800;color:#1E3A8A;margin-top:15px">'
-                f'{status_text}</div></div>',
-                unsafe_allow_html=True,
-            )
-
-        st.caption(
-            "El indicador complementario se calcula como 100% menos el cumplimiento "
-            "de la rúbrica. No representa una probabilidad estadística ni una predicción "
-            "de nulidad judicial."
-        )
-
-        st.markdown("---")
-        st.subheader("📋 Calificación por criterios")
-        for item in criteria:
-            st.write(
-                f"**{item['nombre']}** — {item['score']} / "
-                f"{item['max_pts']} puntos ({item['pct']:.1f}%)"
-            )
-            st.progress(min(max(item["pct"] / 100, 0), 1))
-            st.caption(item.get("detalle", ""))
-
-        st.markdown("---")
-        st.subheader("🔍 Hallazgos de auditoría")
-        if not findings:
-            st.info(
-                "No se reportaron hallazgos sustentados en los bloques analizados. "
-                "Esto no certifica que la sentencia esté libre de defectos."
-            )
-
-        for i, finding in enumerate(findings, 1):
-            st.markdown(
-                f"#### Observación {i}: {finding.get('criterio_afectado', 'Sin criterio')}"
-            )
-            st.caption(f"Referencia: {finding.get('parrafo_ref', 'No identificada')}")
-            st.markdown(
-                f"<div class='turnitin-obs-box'><b>Extracto original:</b><br>"
-                f"<i>{finding.get('texto_original', '')}</i></div>",
-                unsafe_allow_html=True,
-            )
-            st.markdown(
-                f"<span class='legal-badge'>Vicio: {finding.get('vicio', '')}</span> "
-                f"**Base legal:** {finding.get('base_legal', '')}",
-                unsafe_allow_html=True,
-            )
-            st.write(f"**Análisis:** {finding.get('analisis', '')}")
-            if finding.get("propuesta_redaccion"):
+            col1, col2, col3 = st.columns(3)
+            with col1:
                 st.markdown(
-                    f"<div class='turnitin-fix-box'><b>Propuesta de subsanación:</b><br>"
-                    f"{finding.get('propuesta_redaccion', '')}</div>",
+                    f"""
+                <div class="metric-box">
+                    <small>CUMPLIMIENTO NORMATIVO</small>
+                    <div class="metric-value">{pct_cumplimiento:.1f}%</div>
+                    <small>Score: <b>{total_score:.1f} / {max_score_posible:.1f} pts</b></small>
+                </div>
+                """,
                     unsafe_allow_html=True,
                 )
+
+            with col2:
+                st.markdown(
+                    f"""
+                <div class="metric-box">
+                    <small>RIESGO DE NULIDAD / DEFECTOS</small>
+                    <div class="metric-risk">{pct_riesgo:.1f}%</div>
+                    <small>Párrafos críticos: <b>{len(hallazgos_res)}</b></small>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+
+            with col3:
+                nivel_txt = "Sobresaliente / Conforme" if pct_cumplimiento >= 85 else ("Observado / Subsanable" if pct_cumplimiento >= 60 else "Alto Riesgo de Nulidad")
+                st.markdown(
+                    f"""
+                <div class="metric-box">
+                    <small>ESTADO DE LA SENTENCIA</small>
+                    <div style="font-size: 1.3rem; font-weight:800; color:#1E3A8A; margin-top:15px;">{nivel_txt}</div>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+
             st.markdown("---")
+            st.subheader("📋 Calificación por Criterios (Rúbrica Dinámica Configurada)")
+            for c in criterios_res:
+                st.write(f"**{c['nombre']}** — `{c['score']} / {c['max_pts']} pts` ({c['pct']:.0f}%)")
+                st.progress(min(max(c['pct'] / 100.0, 0.0), 1.0))
+                st.caption(f"📌 {c['detalle']}")
 
-        st.subheader("⚖️ Conclusión general")
-        st.write(conclusion)
+            st.markdown("---")
+            st.subheader("🔍 Auditoría Párrafo por Párrafo (Subrayado & Opciones de Subsanación)")
+            st.info("Extractos detectados con vicios de motivación y sus respectivas propuestas de texto subsanado conforme a las leyes peruanas:")
 
-        if limitations:
-            with st.expander("Limitaciones y verificaciones pendientes"):
-                for limitation in limitations:
-                    st.write(f"- {limitation}")
+            for i, h in enumerate(hallazgos_res, 1):
+                st.markdown(f"#### 📍 Observación N° {i}: {h['criterio_afectado']}")
+                st.markdown(f"<span class='legal-badge'>Vicio: {h['vicio']}</span> | **Base Legal Peruana:** {h['base_legal']}", unsafe_allow_html=True)
+                
+                st.markdown(
+                    f"""
+                    <div class="turnitin-obs-box">
+                        <b>⚠️ PÁRRAFO ORIGINAL OBSERVADO EN LA SENTENCIA:</b><br>
+                        <i>"{h['texto_original']}"</i>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                
+                st.markdown(
+                    f"""
+                    <div class="turnitin-fix-box">
+                        <b>✅ PROPUESTA DE REDACCIÓN SUBSANATORIA (CONFORME A DERECHO PERUANO):</b><br>
+                        <b>"{h['propuesta_redaccion']}"</b>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                st.markdown("---")
 
-        word_file = create_word_report(
-            uploaded_file.name,
-            total_score,
-            max_score_posible,
-            pct_compliance,
-            pct_risk,
-            criteria,
-            findings,
-            conclusion,
-            limitations,
-            model_name,
-            total_chars,
-            len(chunks),
-        )
+            # --- BOTÓN DE DESCARGA EN WORD ---
+            word_file = create_word_report(
+                uploaded_file.name,
+                total_score,
+                max_score_posible,
+                pct_cumplimiento,
+                pct_riesgo,
+                criterios_res,
+                hallazgos_res,
+            )
 
-        st.download_button(
-            label="📄 Descargar informe de auditoría en Word",
-            data=word_file,
-            file_name=f"LexSentencia_Auditoria_{uploaded_file.name}.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            type="primary",
-        )
-'''
-path = Path("/mnt/data/app_lexsentencia_mejorado.py")
-path.write_text(code, encoding="utf-8")
-print(f"Archivo creado: {path} ({path.stat().st_size:,} bytes)")
+            st.download_button(
+                label="📄 Descargar Informe Oficial en Word (.docx)",
+                data=word_file,
+                file_name=f"Reporte_Turnitin_LexSentencia_{uploaded_file.name}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                type="primary",
+            )
