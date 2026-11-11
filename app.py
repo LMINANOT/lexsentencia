@@ -1,5 +1,6 @@
 import io
 import json
+import re
 import requests
 import docx
 from docx import Document
@@ -172,7 +173,7 @@ if uploaded_file:
     st.success(f"📄 Sentencia cargada: **{uploaded_file.name}** ({len(raw_text):,} caracteres en total)")
 
     if st.button("🚀 Auditar Sentencia (Análisis de Párrafos y Correcciones Directas)", type="primary"):
-        with st.spinner("🔍 Conectando dinámicamente con Google Gemini para auditar la sentencia completa..."):
+        with st.spinner("🔍 Conectando con Google Gemini para auditar la sentencia completa..."):
             
             criterios_res = []
             hallazgos_res = []
@@ -213,9 +214,11 @@ if uploaded_file:
                 + raw_text[:180000]
             )
 
-            # --- CONEXIÓN DINÁMICA HTTP REST A GOOGLE GEMINI (CÓDIGO ORIGINAL PROBADO) ---
+            # --- CONEXIÓN DINÁMICA SANITIZADA A GOOGLE GEMINI ---
             if provider == "Google Gemini (IA Real)":
-                clean_key = api_key.strip()
+                # Elimina cualquier espacio invisible (\xa0, \t, \r, \n) que altere la URL
+                clean_key = re.sub(r'[\s\xa0\ufeff]', '', api_key)
+                
                 if not clean_key:
                     st.error("❌ No ingresaste la API Key de Gemini en la barra lateral.")
                 else:
@@ -224,57 +227,34 @@ if uploaded_file:
                         "x-goog-api-key": clean_key
                     }
                     
-                    # 1. Obtención de modelos activos directamente desde la API de Google
-                    discovered_models = []
-                    for api_ver in ["v1beta", "v1"]:
-                        try:
-                            list_url = f"[https://generativelanguage.googleapis.com/](https://generativelanguage.googleapis.com/){api_ver}/models?key={clean_key}"
-                            res = requests.get(list_url, headers=headers, timeout=10)
-                            if res.status_code == 200:
-                                models_list = res.json().get("models", [])
-                                for m in models_list:
-                                    methods = m.get("supportedGenerationMethods", [])
-                                    if "generateContent" in methods:
-                                        m_name = m.get("name", "")
-                                        if m_name and (api_ver, m_name) not in discovered_models:
-                                            discovered_models.append((api_ver, m_name))
-                        except Exception:
-                            pass
-
-                    # Fallback directo si la consulta de modelos no responde
-                    if not discovered_models:
-                        discovered_models = [
-                            ("v1beta", "models/gemini-1.5-flash"),
-                            ("v1beta", "models/gemini-1.5-pro"),
-                            ("v1", "models/gemini-1.5-flash"),
-                            ("v1", "models/gemini-1.5-pro")
-                        ]
+                    candidate_models = [
+                        ("v1beta", "gemini-1.5-flash"),
+                        ("v1beta", "gemini-1.5-pro"),
+                        ("v1beta", "gemini-2.0-flash")
+                    ]
 
                     res_text = None
                     last_http_error = ""
 
-                    # 2. Ejecutar la auditoría probando los modelos activos identificados
-                    for api_ver, m_full in discovered_models:
-                        url = f"[https://generativelanguage.googleapis.com/](https://generativelanguage.googleapis.com/){api_ver}/{m_full}:generateContent?key={clean_key}"
-                        
+                    for api_ver, m_name in candidate_models:
+                        # Construcción y desinfección estricta de la URL objetivo
+                        raw_url = f"[https://generativelanguage.googleapis.com/](https://generativelanguage.googleapis.com/){api_ver}/models/{m_name}:generateContent"
+                        clean_url = re.sub(r'[\s\xa0\ufeff]', '', raw_url)
+
                         payload_json = {
                             "contents": [{"parts": [{"text": prompt_text}]}],
                             "generationConfig": {
-                                "response_mime_type": "application/json",
                                 "temperature": 0.2
                             }
                         }
-                        
+
                         try:
-                            response = requests.post(url, headers=headers, json=payload_json, timeout=60)
-                            
-                            # Si el endpoint devuelve error por response_mime_type, reintentar con payload simple
-                            if response.status_code != 200:
-                                payload_simple = {
-                                    "contents": [{"parts": [{"text": prompt_text}]}],
-                                    "generationConfig": {"temperature": 0.2}
-                                }
-                                response = requests.post(url, headers=headers, json=payload_simple, timeout=60)
+                            response = requests.post(
+                                clean_url,
+                                headers=headers,
+                                json=payload_json,
+                                timeout=60
+                            )
 
                             if response.status_code == 200:
                                 res_json = response.json()
@@ -283,12 +263,12 @@ if uploaded_file:
                                     parts = candidates[0]["content"].get("parts", [])
                                     if parts and "text" in parts[0]:
                                         res_text = parts[0]["text"]
-                                        model_used_name = f"{m_full} ({api_ver})"
+                                        model_used_name = f"{m_name} ({api_ver})"
                                         break
                             else:
-                                last_http_error = f"{m_full} [{api_ver}] -> Estado HTTP {response.status_code}: {response.text}"
+                                last_http_error = f"{m_name} [{api_ver}] -> Estado HTTP {response.status_code}: {response.text[:200]}"
                         except Exception as req_e:
-                            last_http_error = f"Excepción en {m_full}: {req_e}"
+                            last_http_error = f"Excepción en {m_name}: {req_e}"
 
                     if res_text:
                         clean_str = res_text.strip()
@@ -309,7 +289,7 @@ if uploaded_file:
                             if criterios_res and hallazgos_res:
                                 ejecutado_con_ia = True
                         except Exception as parse_e:
-                            st.error(f"❌ La IA respondió pero no se pudo leer el JSON: {parse_e}")
+                            st.error(f"❌ La IA respondió pero no se pudo procesar la estructura JSON: {parse_e}")
                     else:
                         st.error(f"❌ Fallo al comunicar con Google API: {last_http_error}")
 
