@@ -1,7 +1,8 @@
 import io
 import json
 import re
-import requests
+import urllib.request
+import urllib.error
 import docx
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -173,7 +174,7 @@ if uploaded_file:
     st.success(f"📄 Sentencia cargada: **{uploaded_file.name}** ({len(raw_text):,} caracteres en total)")
 
     if st.button("🚀 Auditar Sentencia (Análisis de Párrafos y Correcciones Directas)", type="primary"):
-        with st.spinner("🔍 Conectando con Google Gemini para auditar la sentencia completa..."):
+        with st.spinner("🔍 Conectando directamente con Google Gemini para auditar la sentencia completa..."):
             
             criterios_res = []
             hallazgos_res = []
@@ -214,32 +215,23 @@ if uploaded_file:
                 + raw_text[:180000]
             )
 
-            # --- CONEXIÓN DIRECTA REST A GOOGLE GEMINI CON HIGIENE DE CARACTERES ---
+            # --- CONEXIÓN NATIVA DE PYTHON (URLLIB) A GOOGLE GEMINI ---
             if provider == "Google Gemini (IA Real)":
-                # Elimina estrictamente cualquier espacio de no separación (\xa0) o caracteres invisibles copia-pega
                 clean_key = re.sub(r'[^a-zA-Z0-9_\-]', '', api_key)
                 
                 if not clean_key:
                     st.error("❌ No ingresaste la API Key de Gemini en la barra lateral.")
                 else:
-                    candidate_models = [
-                        "gemini-1.5-flash",
-                        "gemini-1.5-pro",
-                        "gemini-2.0-flash"
-                    ]
-
+                    candidate_models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
                     res_text = None
                     last_http_error = ""
 
                     for m_name in candidate_models:
-                        target_url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){m_name}:generateContent"
-                        
-                        headers = {
-                            "Content-Type": "application/json",
-                            "x-goog-api-key": clean_key
-                        }
+                        # Construcción purificada de URL sin caracteres invisibles
+                        raw_url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){m_name}:generateContent?key={clean_key}"
+                        clean_url = re.sub(r'[^\x00-\x7F]+', '', raw_url).strip()
 
-                        payload_json = {
+                        payload = {
                             "contents": [{"parts": [{"text": prompt_text}]}],
                             "generationConfig": {
                                 "temperature": 0.2
@@ -247,15 +239,17 @@ if uploaded_file:
                         }
 
                         try:
-                            response = requests.post(
-                                target_url,
-                                headers=headers,
-                                json=payload_json,
-                                timeout=60
+                            json_data = json.dumps(payload).encode("utf-8")
+                            req = urllib.request.Request(
+                                clean_url,
+                                data=json_data,
+                                headers={"Content-Type": "application/json"},
+                                method="POST"
                             )
 
-                            if response.status_code == 200:
-                                res_json = response.json()
+                            with urllib.request.urlopen(req, timeout=60) as response:
+                                res_bytes = response.read()
+                                res_json = json.loads(res_bytes.decode("utf-8"))
                                 candidates = res_json.get("candidates", [])
                                 if candidates and "content" in candidates[0]:
                                     parts = candidates[0]["content"].get("parts", [])
@@ -263,8 +257,9 @@ if uploaded_file:
                                         res_text = parts[0]["text"]
                                         model_used_name = m_name
                                         break
-                            else:
-                                last_http_error = f"{m_name} -> Estado HTTP {response.status_code}: {response.text[:200]}"
+                        except urllib.error.HTTPError as http_err:
+                            err_body = http_err.read().decode("utf-8", errors="ignore")
+                            last_http_error = f"{m_name} -> HTTP {http_err.code}: {err_body[:200]}"
                         except Exception as req_e:
                             last_http_error = f"Excepción en {m_name}: {req_e}"
 
