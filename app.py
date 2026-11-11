@@ -7,7 +7,6 @@ from docx.shared import RGBColor
 import pypdf
 import streamlit as st
 
-# Importaciones opcionales para evitar errores de librerías faltantes
 try:
     import google.generativeai as genai
 except ImportError:
@@ -24,7 +23,6 @@ st.set_page_config(
     layout="wide",
 )
 
-# Estilos CSS de la interfaz (Estilo Turnitin)
 st.markdown(
     """
 <style>
@@ -128,7 +126,6 @@ def create_word_report(filename, score_total, max_score, pct_cumplimiento, pct_r
     doc.add_paragraph(f"Documento Auditado: {filename}")
     doc.add_paragraph()
 
-    # Resumen Ejecutivo
     doc.add_heading("1. RESUMEN EJECUTIVO Y MÉTRICAS ESTILO TURNITIN", level=1)
     t_summary = doc.add_table(rows=3, cols=2)
     t_summary.style = 'Table Grid'
@@ -141,7 +138,6 @@ def create_word_report(filename, score_total, max_score, pct_cumplimiento, pct_r
 
     doc.add_paragraph()
 
-    # Rúbrica
     doc.add_heading("2. EVALUACIÓN DE RÚBRICA PERSONALIZADA", level=1)
     for c in criterios:
         p = doc.add_paragraph()
@@ -151,7 +147,6 @@ def create_word_report(filename, score_total, max_score, pct_cumplimiento, pct_r
 
     doc.add_paragraph()
 
-    # Auditoría Párrafo por Párrafo
     doc.add_heading("3. AUDITORÍA PÁRRAFO POR PÁRRAFO: OBSERVACIONES Y SUBORDINACIÓN DE TEXTO", level=1)
     for i, h in enumerate(hallazgos_parrafos, 1):
         doc.add_heading(f"Observación N° {i}: {h['criterio_afectado']}", level=2)
@@ -187,86 +182,85 @@ if uploaded_file:
     st.success(f"📄 Documento cargado: **{uploaded_file.name}** ({len(raw_text):,} caracteres)")
 
     if st.button("🚀 Audit Sentencia (Modo Turnitin + Rúbrica Personalizada)", type="primary"):
-        with st.spinner("🔍 Analizando motivación párrafo por párrafo y calculando indicadores..."):
+        with st.spinner("🔍 Analizando motivación párrafo por párrafo y calculando indicadores con IA..."):
             
             criterios_res = []
             hallazgos_res = []
             ejecutado_con_ia = False
+            motor_usado = ""
 
             rubrica_str = "\n".join([f"- {item['Criterio']}: max {item['Max_Pts']} pts" for item in edited_rubrica])
 
             prompt_text = (
-                "Actúa como Auditor Jurídico de Sentencias Peruanas.\n"
-                "Evalúa la sentencia según esta rúbrica:\n"
+                "Actúa como Auditor Jurídico de Sentencias Peruanas (Constitución Art 139 inc 5, STC 00728-2008-PHC/TC).\n"
+                "Evalúa la sentencia adjunta utilizando esta RÚBRICA PERSONALIZADA:\n"
                 + rubrica_str + "\n\n"
-                "Formato JSON estricto requerido:\n"
+                "Instrucciones:\n"
+                "1. Evalúa cada criterio asignando un puntaje (score) sin superar su max_pts.\n"
+                "2. Extrae extractos/párrafos textuales reales de la sentencia que contengan vicios de motivación y propone el texto corregido.\n\n"
+                "Responde EXCLUSIVAMENTE en este formato JSON estricto:\n"
                 "{\n"
                 '  "criterios_evaluados": [\n'
-                '    {"nombre": "nombre", "score": 3.0, "max_pts": 4.0, "nivel": "Aceptable", "detalle": "motivo"}\n'
+                '    {"nombre": "Nombre del Criterio", "score": 3.0, "max_pts": 4.0, "nivel": "Satisfactorio", "detalle": "Justificación"}\n'
                 "  ],\n"
                 '  "hallazgos_parrafos": [\n'
                 "    {\n"
-                '      "criterio_afectado": "nombre",\n'
-                '      "texto_original": "párrafo exacto de la sentencia",\n'
-                '      "vicio": "tipo de vicio",\n'
-                '      "base_legal": "Art. X",\n'
-                '      "propuesta_redaccion": "texto mejorado completo"\n'
+                '      "criterio_afectado": "Nombre Criterio",\n'
+                '      "texto_original": "Párrafo o extracto textual exacto hallado en la sentencia",\n'
+                '      "vicio": "Vicio de motivación detectado",\n'
+                '      "base_legal": "Norma o jurisprudencia peruana vulnerada",\n'
+                '      "propuesta_redaccion": "Redacción corregida y subsanada conforme a derecho"\n'
                 "    }\n"
                 "  ]\n"
                 "}\n\n"
-                "SENTENCIA A AUDITAR:\n"
-                + raw_text[:12000]
+                "TEXTO REAL DE LA SENTENCIA:\n"
+                + raw_text[:14000]
             )
 
-            # --- PROCESAMIENTO CON GOOGLE GEMINI ---
+            # --- CONEXIÓN CON GEMINI ---
             if provider == "Google Gemini":
                 if not api_key.strip():
-                    st.warning("⚠️ No ingresaste una API Key de Gemini. Se usará el Modo Demostración Local.")
+                    st.warning("⚠️ No ingresaste API Key. Usando modo demostración local.")
                 elif genai is None:
-                    st.error("La librería google-generativeai no está disponible.")
+                    st.error("Librería google-generativeai no encontrada.")
                 else:
                     try:
                         genai.configure(api_key=api_key)
                         
-                        candidate_list = [
-                            "models/gemini-1.5-flash",
-                            "models/gemini-1.5-pro",
-                            "gemini-1.5-flash",
-                            "gemini-1.5-pro"
-                        ]
-                        
+                        # Lista de nombres estandar de Gemini en la API oficial de Google
+                        gemini_models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
                         res_text = None
-                        last_err = None
 
-                        for m_name in candidate_list:
+                        for m_name in gemini_models:
                             try:
-                                model = genai.GenerativeModel(m_name)
+                                model = genai.GenerativeModel(
+                                    m_name,
+                                    generation_config={"response_mime_type": "application/json"}
+                                )
                                 res = model.generate_content(prompt_text)
                                 if res and res.text:
                                     res_text = res.text
+                                    motor_usado = f"Google Gemini ({m_name})"
                                     break
-                            except Exception as ex:
-                                last_err = ex
+                            except Exception:
                                 continue
 
                         if res_text:
                             clean_json = res_text.replace("```json", "").replace("```", "").strip()
                             data = json.loads(clean_json)
-                            criterios_res = data["criterios_evaluados"]
-                            hallazgos_res = data["hallazgos_parrafos"]
-                            ejecutado_con_ia = True
-                        else:
-                            st.warning(f"⚠️ Error al conectar con Gemini ({last_err}). Usando modo demostración.")
-                            
+                            criterios_res = data.get("criterios_evaluados", [])
+                            hallazgos_res = data.get("hallazgos_parrafos", [])
+                            if criterios_res and hallazgos_res:
+                                ejecutado_con_ia = True
                     except Exception as e:
-                        st.warning(f"⚠️ Error con la API Key de Gemini ({e}). Usando modo demostración.")
+                        st.warning(f"⚠️ Error al conectar con la API de Gemini: {e}")
 
-            # --- PROCESAMIENTO CON OPENAI (GPT-4o) ---
+            # --- CONEXIÓN CON OPENAI (GPT-4o) ---
             elif provider == "OpenAI (GPT-4o / GPT-4)":
                 if not api_key.strip():
-                    st.warning("⚠️ No ingresaste una API Key de OpenAI. Se usará el Modo Demostración Local.")
+                    st.warning("⚠️ No ingresaste API Key de OpenAI.")
                 elif OpenAI is None:
-                    st.error("La librería openai no está instalada.")
+                    st.error("Librería openai no instalada.")
                 else:
                     try:
                         client = OpenAI(api_key=api_key)
@@ -276,46 +270,40 @@ if uploaded_file:
                             response_format={"type": "json_object"}
                         )
                         data = json.loads(response.choices[0].message.content)
-                        criterios_res = data["criterios_evaluados"]
-                        hallazgos_res = data["hallazgos_parrafos"]
-                        ejecutado_con_ia = True
+                        criterios_res = data.get("criterios_evaluados", [])
+                        hallazgos_res = data.get("hallazgos_parrafos", [])
+                        if criterios_res and hallazgos_res:
+                            ejecutado_con_ia = True
+                            motor_usado = "OpenAI (GPT-4o)"
                     except Exception as e:
-                        st.warning(f"⚠️ Error con OpenAI ({e}). Usando modo demostración.")
+                        st.warning(f"⚠️ Error al conectar con OpenAI: {e}")
 
-            # --- DEMOSTRACIÓN LOCAL (FALLBACK GARANTIZADO) ---
-            if not ejecutado_con_ia or not criterios_res:
+            # --- FALLBACK A DEMOSTRACIÓN SI NO HAY CONEXIÓN ---
+            if not ejecutado_con_ia:
+                st.info("ℹ️ Se activó el Modo Demostración Local de respaldo.")
                 criterios_res = []
                 for item in edited_rubrica:
                     max_p = item["Max_Pts"]
                     assigned_p = round(max_p * 0.65, 1)
-                    nivel_val = "Observado" if assigned_p < (max_p * 0.75) else "Satisfactorio"
                     criterios_res.append({
                         "nombre": item["Criterio"],
                         "score": assigned_p,
                         "max_pts": max_p,
-                        "nivel": nivel_val,
-                        "detalle": "Presenta argumento genérico de plantilla; requiere fundamentación concreta de las pruebas del proceso."
+                        "nivel": "Observado" if assigned_p < (max_p * 0.75) else "Satisfactorio",
+                        "detalle": "Presenta fundamentación genérica; requiere desarrollo sustantivo de la prueba."
                     })
                 
-                crit_2 = edited_rubrica[2]["Criterio"] if len(edited_rubrica) > 2 else "Juicio Probatorio"
-                crit_1 = edited_rubrica[1]["Criterio"] if len(edited_rubrica) > 1 else "Congruencia Procesal"
-
                 hallazgos_res = [
                     {
-                        "criterio_afectado": crit_2,
-                        "texto_original": "CONSIDERANDO CUARTO: Que, respecto a la prueba documental presentada por la parte demandada, este juzgado considera que no desvirtúa las pretensiones de la parte actora, por lo que procede a amparar la demanda en todos sus extremos...",
-                        "vicio": "Motivación Aparente y Defecto en la Valoración Probatoria (STC 00728-2008-PHC/TC)",
-                        "base_legal": "Art. 197 del Código Procesal Civil Peruano",
-                        "propuesta_redaccion": "CONSIDERANDO CUARTO (REVISIÓN SUBSANATORIA): Respecto a la documental N° 04 presentada por la defensa, este despacho advierte que si bien sostiene la falta de responsabilidad, queda desvirtuada al contrastarse de forma conjunta con la prueba testimonial de fojas 45, toda vez que no justifica la omisión del deber de cuidado conforme al Art. 197 del CPC."
-                    },
-                    {
-                        "criterio_afectado": crit_1,
-                        "texto_original": "CONSIDERANDO SÉPTIMO: Que, atendiendo a la carga procesal y a la naturaleza del proceso, se fija el monto indemnizatorio en el máximo legal sin requerirse mayor probanza al ser evidente el daño ocasionado...",
-                        "vicio": "Motivación Insuficiente (Falta de Criterios Cualitativos de Cuantificación)",
-                        "base_legal": "Art. 139 inc. 5 de la Constitución Política del Perú",
-                        "propuesta_redaccion": "CONSIDERANDO SÉPTIMO (REVISIÓN SUBSANATORIA): En cuanto a la cuantificación de la reparación civil, este juzgado fija el monto en S/ 15,000 sustentándose en el grado de afectación emocional acreditado en la Pericia Psicológica N° 88-2025 y la capacidad económica demostrada del obligado, garantizando la debida motivación del quantum indemnizatorio."
+                        "criterio_afectado": edited_rubrica[2]["Criterio"] if len(edited_rubrica) > 2 else "Juicio Probatorio",
+                        "texto_original": "CONSIDERANDO CUARTO: Que, la prueba documental no desvirtúa la pretensión demandada...",
+                        "vicio": "Motivación Aparente / Defecto de Valoración Probatoria",
+                        "base_legal": "Art. 197 del Código Procesal Civil",
+                        "propuesta_redaccion": "CONSIDERANDO CUARTO (CORREGIDO): Respecto a la documental N° 04 de la defensa, este juzgado advierte que queda desvirtuada al contrastarla de forma conjunta con la testimonial de fojas 45, toda vez que no desvirtúa el deber de cuidado según el Art. 197 del CPC."
                     }
                 ]
+            else:
+                st.success(f"✅ **¡Análisis Real Exitoso!** Procesado en tiempo real con **{motor_usado}**.")
 
             # --- CÁLCULO DE MÉTRICAS ---
             total_score = sum(c["score"] for c in criterios_res)
@@ -374,7 +362,7 @@ if uploaded_file:
 
             st.markdown("---")
             st.subheader("🔍 Auditoría Párrafo por Párrafo (Subrayado & Opciones de Subsanación)")
-            st.info("A continuación se subrayan los extractos con vicios de motivación y la propuesta de texto corregido para reemplazarlos:")
+            st.info("A continuación se destacan los párrafos con vicios detectados y sus propuestas de subsanación:")
 
             for i, h in enumerate(hallazgos_res, 1):
                 st.markdown(f"#### 📍 Observación N° {i}: {h['criterio_afectado']}")
