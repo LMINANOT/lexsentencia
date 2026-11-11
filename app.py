@@ -215,32 +215,33 @@ if uploaded_file:
             )
 
             if provider == "Google Gemini (IA Real)":
-                clean_key = re.sub(r'[^a-zA-Z0-9_\-]', '', str(api_key)).strip()
+                clean_key = str(api_key).strip()
+                clean_key = re.sub(r'[^a-zA-Z0-9_\-]', '', clean_key)
                 
                 if not clean_key:
                     st.error("❌ No ingresaste la API Key de Gemini en la barra lateral.")
                 else:
-                    candidate_models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
+                    # SESIÓN SIN RASTREO DE PROXIES DEL ENTORNO DE STREAMLIT
+                    session = requests.Session()
+                    session.trust_env = False  # Bypasses Streamlit Cloud's internal proxy routing
+                    
+                    candidate_models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
                     res_text = None
                     last_http_error = ""
 
                     for m_name in candidate_models:
-                        # Filtrado ASCII absoluto para evitar caracteres Unicode invisibles
-                        raw_endpoint = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){m_name}:generateContent"
-                        endpoint = "".join(c for c in raw_endpoint if 32 <= ord(c) <= 126).strip()
-                        
+                        endpoint = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){m_name}:generateContent"
                         headers = {
                             "Content-Type": "application/json",
                             "x-goog-api-key": clean_key
                         }
-                        
                         payload = {
                             "contents": [{"parts": [{"text": prompt_text}]}],
                             "generationConfig": {"temperature": 0.2}
                         }
 
                         try:
-                            response = requests.post(
+                            response = session.post(
                                 endpoint,
                                 headers=headers,
                                 json=payload,
