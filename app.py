@@ -1,5 +1,7 @@
 import io
 import json
+import re
+import urllib.request
 import docx
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -51,7 +53,7 @@ st.markdown(
 
 st.markdown('<div class="main-title">⚖️ LexSentencia 2026</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano<br><b>Análisis con Cotejo de Códigos Digitales y Jurisprudencia (Google Gemini)</b></div>',
+    '<div class="sub-title">Auditoría de Motivación Judicial & Cotejo Normativo Peruano<br><b>Análisis con Cotejo de Archivos Digitales y URLs Web (Google Gemini)</b></div>',
     unsafe_allow_html=True,
 )
 
@@ -67,11 +69,18 @@ else:
 
 st.sidebar.markdown("---")
 st.sidebar.header("📚 Base Normativa Digital (Opcional)")
+
 normative_files = st.sidebar.file_uploader(
-    "Subir Códigos / Leyes / Jurisprudencia en PDF/Word",
+    "1. Subir Códigos / Leyes en PDF o Word",
     type=["pdf", "docx", "txt"],
     accept_multiple_files=True,
-    help="Puedes subir el CPC, CPP, CC, CP o sentencias del TC en PDF para contrastar la norma exacta."
+    help="Puedes subir el CPC, CPP, CC, CP o sentencias del TC en PDF/Word."
+)
+
+urls_input = st.sidebar.text_area(
+    "2. Pegar URLs de Normas o Jurisprudencia",
+    placeholder="https://busquedas.elperuano.pe/...\nhttps://lpderecho.pe/...",
+    help="Pega uno o más enlaces web (uno por línea) para extraer la norma o fallo del TC."
 )
 
 st.sidebar.markdown("---")
@@ -115,6 +124,30 @@ def extract_text(uploaded_file) -> str:
     else:
         text = uploaded_file.read().decode("utf-8", errors="ignore")
     return text
+
+
+def extract_url_text(url: str) -> str:
+    url = url.strip()
+    if not url:
+        return ""
+    if not url.startswith("http://") and not url.startswith("https://"):
+        url = "https://" + url
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        )
+        with urllib.request.urlopen(req, timeout=7) as response:
+            html = response.read().decode('utf-8', errors='ignore')
+        
+        text = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL)
+        text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL)
+        text = re.sub(r'<[^>]+>', ' ', text)
+        lines = (line.strip() for line in text.splitlines())
+        clean_text = ' '.join(chunk for chunk in lines if chunk)
+        return clean_text[:6000]
+    except Exception as e:
+        return f"[Error al extraer contenido de {url}: {e}]"
 
 
 def create_word_report(filename, score_total, max_score, pct_cumplimiento, pct_riesgo, criterios, hallazgos_parrafos):
@@ -184,17 +217,30 @@ if uploaded_file:
     raw_text = extract_text(uploaded_file)
     st.success(f"📄 Sentencia cargada: **{uploaded_file.name}** ({len(raw_text):,} caracteres)")
 
-    # Procesar archivos normativos digitales cargados en la barra lateral
+    # Procesamiento de contexto normativo (Archivos + URLs)
     normative_context = ""
+    sources_count = 0
+
     if normative_files:
-        normative_context = "\n\n--- CÓDIGOS Y NORMAS DIGITALES DE REFERENCIA PROPORCIONADOS ---\n"
+        normative_context += "\n--- ARCHIVOS NORMATIVOS ADJUNTOS ---\n"
         for n_file in normative_files:
             txt_norm = extract_text(n_file)
-            normative_context += f"\n[Documento Normativo: {n_file.name}]\n" + txt_norm[:6000] + "\n"
-        st.info(f"📚 Se adjuntaron **{len(normative_files)}** documentos normativos para el cotejo legal exacto.")
+            normative_context += f"\n[Documento: {n_file.name}]\n" + txt_norm[:5000] + "\n"
+            sources_count += 1
+
+    if urls_input.strip():
+        normative_context += "\n--- NORMAS Y JURISPRUDENCIA EXTRAÍDAS DE URLS WEB ---\n"
+        urls_list = [u.strip() for u in urls_input.split("\n") if u.strip()]
+        for u in urls_list:
+            u_text = extract_url_text(u)
+            normative_context += f"\n[Fuente URL: {u}]\n" + u_text + "\n"
+            sources_count += 1
+
+    if sources_count > 0:
+        st.info(f"📚 Se vincularon **{sources_count} fuentes externas** (archivos/URLs) para el cotejo normativo.")
 
     if st.button("🚀 Audit Sentencia (Modo Turnitin + Rúbrica Personalizada)", type="primary"):
-        with st.spinner("🔍 Auditando la sentencia y cotejando normas peruanas con Google Gemini..."):
+        with st.spinner("🔍 Analizando sentencia y cotejando normas peruanas / URLs con Google Gemini..."):
             
             criterios_res = []
             hallazgos_res = []
@@ -204,18 +250,18 @@ if uploaded_file:
             rubrica_str = "\n".join([f"- {item['Criterio']}: max {item['Max_Pts']} pts" for item in edited_rubrica])
 
             prompt_text = (
-                "Actúa como un Auditor Jurídico Experto en Derecho Peruano.\n"
-                "Tu objetivo es auditar la sentencia adjunta verificando su estricto apego a la legislación peruana:\n"
-                "- Constitución del Perú (Art. 139 inc. 5)\n"
-                "- STC N° 00728-2008-PHC/TC (Vicios de motivación)\n"
-                "- Código Procesal Civil (CPC), Código Procesal Penal (CPP), Código Civil (CC) y Código Penal (CP).\n\n"
+                "Actúa como Auditor Jurídico Experto en Derecho Peruano.\n"
+                "Audita la sentencia adjunta verificando:\n"
+                "- Art. 139 inc. 5 de la Constitución del Perú\n"
+                "- STC N° 00728-2008-PHC/TC (vicios de motivación)\n"
+                "- Código Procesal Civil, Código Procesal Penal, Código Civil y Código Penal del Perú.\n\n"
                 "RÚBRICA DE EVALUACIÓN:\n"
                 + rubrica_str + "\n\n"
                 + normative_context + "\n\n"
-                "Instrucciones:\n"
-                "1. Verifica cuidadosamente que los números de artículo citados correspondan a la norma exacta.\n"
-                "2. Evalúa cada criterio asignando un puntaje (score) sin superar el max_pts.\n"
-                "3. Responde EXCLUSIVAMENTE en formato JSON estricto con esta estructura exacta:\n"
+                "INSTRUCCIONES:\n"
+                "1. Contrasta las normas de la sentencia con las fuentes normativas y URLs proporcionadas para evitar errores normativos.\n"
+                "2. Asigna puntajes por criterio sin superar su max_pts.\n"
+                "3. Responde EXCLUSIVAMENTE un objeto JSON válido con esta estructura exacta:\n"
                 "{\n"
                 '  "criterios_evaluados": [\n'
                 '    {"nombre": "Nombre Criterio", "score": 3.0, "max_pts": 4.0, "nivel": "Satisfactorio", "detalle": "Sustento normativo peruano"}\n'
@@ -230,7 +276,7 @@ if uploaded_file:
                 "    }\n"
                 "  ]\n"
                 "}\n\n"
-                "TEXTO REAL DE LA SENTENCIA A AUDITAR:\n"
+                "TEXTO REAL DE LA SENTENCIA:\n"
                 + raw_text[:14000]
             )
 
@@ -301,7 +347,7 @@ if uploaded_file:
                 if provider != "Google Gemini (IA Real)":
                     st.info("ℹ️ Ejecutando auditoría en Modo Demostración Local.")
                 else:
-                    st.warning("⚠️ Se mostraron datos de respaldo debido a un fallo de conexión.")
+                    st.warning("⚠️ Se mostraron datos de respaldo debido a un problema de conexión.")
 
                 criterios_res = []
                 for item in edited_rubrica:
