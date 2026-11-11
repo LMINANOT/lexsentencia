@@ -225,8 +225,9 @@ if uploaded_file:
                     last_http_error = ""
 
                     for m_name in candidate_models:
-                        # URL plana sin marcas de Markdown ni corchetes
-                        endpoint = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){m_name}:generateContent"
+                        # Filtrado ASCII absoluto para evitar caracteres Unicode invisibles
+                        raw_endpoint = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){m_name}:generateContent"
+                        endpoint = "".join(c for c in raw_endpoint if 32 <= ord(c) <= 126).strip()
                         
                         headers = {
                             "Content-Type": "application/json",
